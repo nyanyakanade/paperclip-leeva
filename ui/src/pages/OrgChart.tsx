@@ -645,7 +645,7 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
               const bend = (index % 3 - 1) * GAP_X;
               const midX = (x1 + x2) / 2 + bend;
               const midY = (y1 + y2) / 2;
-              const color = rule.kind === "dispatch" ? "var(--chart-1)" : rule.kind === "review" ? "var(--chart-2)" : rule.kind === "escalate" ? "var(--chart-3)" : "var(--chart-4)";
+              const color = rule.kind === "dispatch" ? "var(--status-task-icon-in_progress)" : rule.kind === "review" ? "var(--status-task-icon-in_review)" : rule.kind === "escalate" ? "var(--status-task-icon-todo)" : "var(--status-task-icon-done)";
               const path = `M ${x1} ${y1} Q ${midX} ${y1} ${midX} ${midY} T ${x2} ${y2}`;
               const select = () => collaboration.editing && collaboration.onSelectRule(rule.id);
               return <g key={rule.id} data-collaboration-edge={rule.id} opacity={rule.enabled ? 1 : 0.4}>
