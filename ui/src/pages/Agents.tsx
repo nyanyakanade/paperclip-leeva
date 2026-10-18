@@ -23,6 +23,7 @@ import { BuiltInLifecycleChip } from "../components/BuiltInAgentBadges";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { OrgChart } from "./OrgChart";
+import { CollaborationGraph } from "../components/CollaborationGraph";
 import { relativeTime, cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { PageTabBar } from "../components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
@@ -556,7 +557,9 @@ export function Agents({ initialView = "list", page = "agents" }: { initialView?
 
       {/* Org chart view */}
       {effectiveView === "org" && filteredOrg.length > 0 && (
-        <OrgChart embedded orgTree={filteredOrg} agents={agents ?? []} />
+        page === "home" && selectedCompanyId
+          ? <CollaborationGraph key={selectedCompanyId} companyId={selectedCompanyId} orgTree={filteredOrg} agents={agents ?? []} />
+          : <OrgChart embedded orgTree={filteredOrg} agents={agents ?? []} />
       )}
 
       {effectiveView === "org" && orgTree && orgTree.length > 0 && filteredOrg.length === 0 && (

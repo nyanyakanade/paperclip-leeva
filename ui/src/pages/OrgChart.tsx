@@ -1,5 +1,5 @@
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback, useId } from "react";
 import { Link, useNavigate } from "@/lib/router";
 import { useQuery } from "@tanstack/react-query";
 import { agentsApi, type OrgNode } from "../api/agents";
@@ -15,6 +15,8 @@ import { Download, Maximize2, Minus, Network, Plus, Upload } from "lucide-react"
 import { AGENT_ROLE_LABELS, type Agent } from "@paperclipai/shared";
 import { useCloudInstance } from "@/hooks/useCloudInstance";
 import { useHiddenSettings } from "@/hooks/useHiddenSettings";
+import type { AgentPositions, CollaborationRule } from "../api/collaboration";
+import { displayText } from "../i18n/display";
 
 // Layout constants
 const CARD_W = 200;
@@ -203,9 +205,19 @@ export interface OrgChartProps {
   agents?: Agent[];
   /** Hides page-level actions and breadcrumb ownership. */
   embedded?: boolean;
+  collaboration?: {
+    rules: CollaborationRule[];
+    positions: AgentPositions;
+    editing: boolean;
+    selectedRuleId: string | null;
+    selectedAgentId: string | null;
+    onMove: (id: string, position: Point) => void;
+    onSelectAgent: (id: string) => void;
+    onSelectRule: (id: string) => void;
+  };
 }
 
-export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, embedded = false }: OrgChartProps = {}) {
+export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, embedded = false, collaboration }: OrgChartProps = {}) {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const navigate = useNavigate();
@@ -243,8 +255,14 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
 
   // Layout computation
   const layout = useMemo(() => layoutForest(orgTree ?? []), [orgTree]);
-  const allNodes = useMemo(() => flattenLayout(layout), [layout]);
+  const allNodes = useMemo(() => flattenLayout(layout).map((node) => ({
+    ...node,
+    ...collaboration?.positions[node.id],
+  })), [layout, collaboration?.positions]);
+  const nodeMap = useMemo(() => new Map(allNodes.map((node) => [node.id, node])), [allNodes]);
   const edges = useMemo(() => collectEdges(layout), [layout]);
+  const markerId = useId().replaceAll(":", "");
+  const nodeDrag = useRef<{ id: string; startX: number; startY: number; x: number; y: number; moved: boolean } | null>(null);
 
   // Compute SVG bounds
   const bounds = useMemo(() => {
@@ -304,19 +322,33 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
     if (e.button !== 0) return;
     // Don't drag if clicking a card
     const target = e.target as HTMLElement;
-    if (target.closest("[data-org-card]")) return;
+    if (target.closest("[data-org-card], [data-collaboration-edge], button")) return;
     setDragging(true);
     dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
   }, [pan]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const node = nodeDrag.current;
+    if (node && collaboration?.editing) {
+      const dx = (e.clientX - node.startX) / zoom;
+      const dy = (e.clientY - node.startY) / zoom;
+      if (Math.hypot(dx, dy) > TOUCH_MOVE_THRESHOLD) node.moved = true;
+      if (node.moved) collaboration.onMove(node.id, { x: Math.max(0, node.x + dx), y: Math.max(0, node.y + dy) });
+      return;
+    }
     if (!dragging) return;
     const dx = e.clientX - dragStart.current.x;
     const dy = e.clientY - dragStart.current.y;
     setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy });
-  }, [dragging]);
+  }, [dragging, collaboration, zoom]);
 
   const handleMouseUp = useCallback(() => {
+    if (nodeDrag.current?.moved) {
+      suppressNextCardClick.current = true;
+      if (suppressClickTimerRef.current !== null) window.clearTimeout(suppressClickTimerRef.current);
+      suppressClickTimerRef.current = window.setTimeout(() => { suppressNextCardClick.current = false; }, 0);
+    }
+    nodeDrag.current = null;
     setDragging(false);
   }, []);
 
@@ -478,7 +510,9 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
 
   return (
     <div
-      className={embedded
+      className={collaboration
+        ? "flex min-h-(--sz-420px) flex-1 flex-col"
+        : embedded
         ? "flex min-h-(--sz-420px) flex-1 flex-col md:min-h-0"
         : "flex h-(--sz-calc-38) min-h-(--sz-420px) flex-col md:h-full md:min-h-0"}
     >
@@ -573,8 +607,15 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
             height: "100%",
           }}
         >
+          <defs>
+            <marker id={markerId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
+            </marker>
+          </defs>
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
             {edges.map(({ parent, child }) => {
+              parent = nodeMap.get(parent.id) ?? parent;
+              child = nodeMap.get(child.id) ?? child;
               const x1 = parent.x + CARD_W / 2;
               const y1 = parent.y + CARD_H;
               const x2 = child.x + CARD_W / 2;
@@ -588,8 +629,32 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
                   fill="none"
                   stroke="var(--border)"
                   strokeWidth={1.5}
+                  strokeDasharray={collaboration ? "6 4" : undefined}
                 />
               );
+            })}
+            {collaboration?.rules.map((rule, index) => {
+              const source = nodeMap.get(rule.source);
+              const target = nodeMap.get(rule.target);
+              if (!source || !target) return null;
+              const down = target.y >= source.y;
+              const x1 = source.x + CARD_W / 2;
+              const y1 = source.y + (down ? CARD_H : 0);
+              const x2 = target.x + CARD_W / 2;
+              const y2 = target.y + (down ? 0 : CARD_H);
+              const bend = (index % 3 - 1) * GAP_X;
+              const midX = (x1 + x2) / 2 + bend;
+              const midY = (y1 + y2) / 2;
+              const color = rule.kind === "dispatch" ? "var(--chart-1)" : rule.kind === "review" ? "var(--chart-2)" : rule.kind === "escalate" ? "var(--chart-3)" : "var(--chart-4)";
+              const path = `M ${x1} ${y1} Q ${midX} ${y1} ${midX} ${midY} T ${x2} ${y2}`;
+              const select = () => collaboration.editing && collaboration.onSelectRule(rule.id);
+              return <g key={rule.id} data-collaboration-edge={rule.id} opacity={rule.enabled ? 1 : 0.4}>
+                <path d={path} fill="none" stroke={color} strokeWidth={collaboration.selectedRuleId === rule.id ? 4 : 2} strokeDasharray={rule.enabled ? undefined : "4 4"} markerEnd={`url(#${markerId})`} />
+                <path d={path} fill="none" stroke="transparent" strokeWidth={16} style={{ pointerEvents: collaboration.editing ? "stroke" : "none", cursor: "pointer" }} onClick={select} />
+                <text x={midX} y={midY} textAnchor="middle" dominantBaseline="middle" fill={color} stroke="var(--background)" strokeWidth={4} paintOrder="stroke" className="text-xs font-medium" style={{ pointerEvents: collaboration.editing ? "auto" : "none", cursor: "pointer" }} onClick={select} role={collaboration.editing ? "button" : undefined} tabIndex={collaboration.editing ? 0 : undefined} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); } }}>
+                  {displayText(rule.kind === "dispatch" ? "Dispatch" : rule.kind === "review" ? "Send for review" : rule.kind === "escalate" ? "Escalate" : "Notify")}
+                </text>
+              </g>;
             })}
           </g>
         </svg>
@@ -597,7 +662,7 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
         {/* Card layer */}
         <div
           data-testid="org-chart-card-layer"
-          className="absolute inset-0"
+          className="absolute inset-0 pointer-events-none"
           style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: "0 0",
@@ -611,14 +676,28 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
               <Card
                 key={node.id}
                 data-org-card
-                className="block absolute py-0 hover:shadow-md hover:border-foreground/20 transition-(--tp-box-shadow-border-color) duration-150 cursor-pointer select-none"
+                className={`block absolute py-0 pointer-events-auto hover:shadow-md hover:border-foreground/20 transition-(--tp-box-shadow-border-color) duration-150 cursor-pointer select-none ${collaboration?.selectedAgentId === node.id ? "ring-2 ring-primary" : ""}`}
                 style={{
                   left: node.x,
                   top: node.y,
                   width: CARD_W,
                   minHeight: CARD_H,
                 }}
-                onClick={() => navigate(agent ? agentUrl(agent) : `/agents/${node.id}`)}
+                role={collaboration?.editing ? "button" : undefined}
+                tabIndex={collaboration?.editing ? 0 : undefined}
+                onMouseDown={(event) => {
+                  if (!collaboration?.editing || event.button !== 0) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  nodeDrag.current = { id: node.id, startX: event.clientX, startY: event.clientY, x: node.x, y: node.y, moved: false };
+                }}
+                onClick={() => collaboration?.editing ? collaboration.onSelectAgent(node.id) : navigate(agent ? agentUrl(agent) : `/agents/${node.id}`)}
+                onKeyDown={(event) => {
+                  if (collaboration?.editing && (event.key === "Enter" || event.key === " ")) {
+                    event.preventDefault();
+                    collaboration.onSelectAgent(node.id);
+                  }
+                }}
                 onClickCapture={(e) => {
                   if (!suppressNextCardClick.current) return;
                   suppressNextCardClick.current = false;

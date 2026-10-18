@@ -22,6 +22,7 @@ import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { relativeTime, cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { PageTabBar } from "../components/PageTabBar";
+import { CollaborationGraph } from "../components/CollaborationGraph";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Bot, Plus, List, GitBranch } from "lucide-react";
@@ -557,7 +558,7 @@ export function Agents({ page = "agents" }: { page?: "agents" | "home" } = {}) {
 
       {/* Org chart view */}
       {effectiveView === "org" && filteredOrg.length > 0 && (
-        <div className="py-1">
+        page === "home" && selectedCompanyId ? <CollaborationGraph key={selectedCompanyId} companyId={selectedCompanyId} orgTree={filteredOrg} agents={agents ?? []} /> : <div className="py-1">
           {filteredOrg.map((node) => (
             <OrgTreeNode
               key={node.id}
