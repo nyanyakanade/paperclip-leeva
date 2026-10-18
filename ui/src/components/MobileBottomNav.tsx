@@ -16,6 +16,7 @@ import { useInboxBadge } from "../hooks/useInboxBadge";
 import { useAgentChatEnabled } from "@/hooks/useAgentChatEnabled";
 import { useCombinedInboxTasksEnabled } from "@/hooks/useCombinedInboxTasksEnabled";
 import { Badge } from "@/components/ui/badge";
+import { displayText } from "@/i18n/display";
 
 interface MobileBottomNavProps {
   visible: boolean;
@@ -115,7 +116,7 @@ export function MobileBottomNav({ visible }: MobileBottomNavProps) {
                 )}
               >
                 <Icon className="h-(--sz-18px) w-(--sz-18px)" />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate">{displayText(item.label)}</span>
               </button>
             );
           }
@@ -145,7 +146,7 @@ export function MobileBottomNav({ visible }: MobileBottomNavProps) {
                       </Badge>
                     )}
                   </span>
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate">{displayText(item.label)}</span>
                 </>
               )}
             </NavLink>
