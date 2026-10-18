@@ -4,6 +4,7 @@ import {
   CircleDot,
   Target,
   LayoutDashboard,
+  House,
   DollarSign,
   History,
   Search,
@@ -152,6 +153,7 @@ export function Sidebar() {
               collapsed rail, where the old header icon was dropped entirely.
               Cmd/Ctrl+K remains the keyboard path (command palette). */}
           <SidebarNavItem to="/search" label="Search" icon={Search} />
+          <SidebarNavItem to="/home" label="Home" icon={House} />
           <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
           <SidebarNavItem
             to="/inbox"

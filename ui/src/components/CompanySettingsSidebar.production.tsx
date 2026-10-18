@@ -87,7 +87,7 @@ export function CompanySettingsSidebar() {
     <aside className="w-full h-full min-h-0 border-r border-border bg-background flex flex-col">
       <div className="flex flex-col gap-1 px-3 py-3 shrink-0">
         <Link
-          to="/dashboard"
+          to="/home"
           onClick={() => {
             if (isMobile) setSidebarOpen(false);
           }}

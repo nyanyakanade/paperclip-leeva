@@ -171,7 +171,7 @@ export function CompanySettings() {
           dedupeKey: `company-archive-departure:${companyId}`,
         });
         setSelectedCompanyId(departure.company.id);
-        navigate(`/${departure.company.issuePrefix}/dashboard`, { replace: true });
+        navigate(`/${departure.company.issuePrefix}/home`, { replace: true });
       } else {
         toastActions?.pushToast({
           title: `${archivedName} is archived`,

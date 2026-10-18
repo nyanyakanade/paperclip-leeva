@@ -323,7 +323,7 @@ export function Layout() {
         dedupeKey: `archived-company-bounce:${matchedCompany.id}`,
       });
       setSelectedCompanyId(bounce.id, { source: "route_sync" });
-      navigate(`/${bounce.issuePrefix}/dashboard`, { replace: true });
+      navigate(`/${bounce.issuePrefix}/home`, { replace: true });
       return;
     }
 

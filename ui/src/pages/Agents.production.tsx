@@ -188,7 +188,8 @@ function filterOrgTree(nodes: OrgNode[], tab: FilterTab, builtInAgentIds: Set<st
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function Agents() {
+export function Agents({ page = "agents" }: { page?: "agents" | "home" } = {}) {
+  const basePath = page === "home" ? "/home" : "/agents";
   const { selectedCompanyId } = useCompany();
   const { openNewAgent } = useDialogActions();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -318,14 +319,14 @@ export function Agents() {
   }, [agents, environmentsById, environmentCapabilities, instanceSettings?.defaultEnvironmentId]);
 
   useEffect(() => {
-    setBreadcrumbs([{ label: "Agents" }]);
-  }, [setBreadcrumbs]);
+    setBreadcrumbs(page === "home" ? [{ label: "Home" }] : [{ label: "Agents" }]);
+  }, [page, setBreadcrumbs]);
 
   useEffect(() => {
     if (selectedCompanyId && requestedTab === "builtin" && instanceSettings && !builtInAgentsEnabled) {
-      navigate("/agents/all", { replace: true });
+      navigate(`${basePath}/all`, { replace: true });
     }
-  }, [builtInAgentsEnabled, instanceSettings, navigate, requestedTab, selectedCompanyId]);
+  }, [basePath, builtInAgentsEnabled, instanceSettings, navigate, requestedTab, selectedCompanyId]);
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Bot} message="Select a company to view agents." />;
@@ -482,11 +483,11 @@ export function Agents() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Tabs value={tab} onValueChange={(v) => navigate(`/agents/${v}`)}>
+        <Tabs value={tab} onValueChange={(v) => navigate(`${basePath}/${v}`)}>
           <PageTabBar
             items={visibleTabItems}
             value={tab}
-            onValueChange={(v) => navigate(`/agents/${v}`)}
+            onValueChange={(v) => navigate(`${basePath}/${v}`)}
           />
         </Tabs>
         <div className="flex items-center gap-2">
@@ -527,7 +528,7 @@ export function Agents() {
       </div>
 
       {filtered.length > 0 && (
-        <p className="text-xs text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""}</p>
+        <p className="text-xs text-muted-foreground"><span>Agents</span>: {filtered.length}</p>
       )}
 
       {error && <p className="text-sm text-destructive">{error.message}</p>}

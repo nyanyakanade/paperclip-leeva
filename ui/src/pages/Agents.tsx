@@ -193,7 +193,8 @@ function filterOrgTree(nodes: OrgNode[], tab: FilterTab, builtInAgentIds: Set<st
 
 export type AgentsView = "list" | "org";
 
-export function Agents({ initialView = "list" }: { initialView?: AgentsView } = {}) {
+export function Agents({ initialView = "list", page = "agents" }: { initialView?: AgentsView; page?: "agents" | "home" } = {}) {
+  const basePath = page === "home" ? "/home" : "/agents";
   const agentChat = useAgentChatEnabled();
   const { selectedCompanyId } = useCompany();
   const { openNewAgent } = useDialogActions();
@@ -205,7 +206,7 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
   const pathSegment = location.pathname.split("/").pop() ?? "all";
   const requestedTab: FilterTab = isFilterTab(pathSegment) ? pathSegment : "all";
   const [view, setView] = useState<AgentsView>(() => streamlinedUiEnabled ? initialView : "org");
-  const forceListView = !streamlinedUiEnabled && isMobile;
+  const forceListView = (!streamlinedUiEnabled || page === "home") && isMobile;
   const effectiveView: AgentsView = forceListView ? "list" : view;
 
   useEffect(() => {
@@ -323,14 +324,14 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
   }, [agents, environmentsById, environmentCapabilities, instanceSettings?.defaultEnvironmentId]);
 
   useEffect(() => {
-    setBreadcrumbs([{ label: "Agents" }]);
-  }, [setBreadcrumbs]);
+    setBreadcrumbs(page === "home" ? [{ label: "Home" }] : [{ label: "Agents" }]);
+  }, [page, setBreadcrumbs]);
 
   useEffect(() => {
     if (selectedCompanyId && requestedTab === "builtin" && instanceSettings && !builtInAgentsEnabled) {
-      navigate("/agents/all", { replace: true });
+      navigate(`${basePath}/all`, { replace: true });
     }
-  }, [builtInAgentsEnabled, instanceSettings, navigate, requestedTab, selectedCompanyId]);
+  }, [basePath, builtInAgentsEnabled, instanceSettings, navigate, requestedTab, selectedCompanyId]);
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Bot} message="Select an organization to view agents." />;
@@ -484,11 +485,11 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
         : "space-y-4",
     )}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs value={tab} onValueChange={(v) => navigate(`/agents/${v}`)}>
+        <Tabs value={tab} onValueChange={(v) => navigate(`${basePath}/${v}`)}>
           <PageTabBar
             items={visibleTabItems}
             value={tab}
-            onValueChange={(v) => navigate(`/agents/${v}`)}
+            onValueChange={(v) => navigate(`${basePath}/${v}`)}
           />
         </Tabs>
         <div className="flex items-center gap-2">
@@ -526,7 +527,7 @@ export function Agents({ initialView = "list" }: { initialView?: AgentsView } = 
       </div>
 
       {filtered.length > 0 && (
-        <p className="text-xs text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""}</p>
+        <p className="text-xs text-muted-foreground"><span>Agents</span>: {filtered.length}</p>
       )}
 
       {error && <p className="text-sm text-destructive">{error.message}</p>}

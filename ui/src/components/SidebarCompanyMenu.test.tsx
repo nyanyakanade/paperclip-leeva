@@ -508,7 +508,7 @@ describe("SidebarCompanyMenu", () => {
     });
   });
 
-  it("navigates to the selected company dashboard from company-prefixed routes", async () => {
+  it("navigates to the selected company home from company-prefixed routes", async () => {
     mockLocation.pathname = "/PAP/issues";
     const root = createRoot(container);
     const queryClient = new QueryClient({
@@ -544,7 +544,7 @@ describe("SidebarCompanyMenu", () => {
     await flushReact();
 
     expect(mockSetSelectedCompanyId).toHaveBeenCalledWith("company-2");
-    expect(mockNavigate).toHaveBeenCalledWith("/STR/dashboard");
+    expect(mockNavigate).toHaveBeenCalledWith("/STR/home");
 
     act(() => {
       root.unmount();
@@ -643,7 +643,7 @@ describe("SidebarCompanyMenu", () => {
         .find(element => element.textContent?.includes("Anachronist Wiki"));
       act(() => row?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
       expect(mockSetSelectedCompanyId).toHaveBeenCalledWith("company-3");
-      expect(mockNavigate).toHaveBeenCalledWith("/ANA/dashboard");
+      expect(mockNavigate).toHaveBeenCalledWith("/ANA/home");
       expect(mockNavigateTopLevel).not.toHaveBeenCalled();
       act(() => root.unmount());
     });

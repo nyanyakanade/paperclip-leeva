@@ -26,7 +26,7 @@ export function SkillsContextualSidebar() {
       surface="skills"
       title="Skills"
       icon={Library}
-      fallbackTo="/dashboard"
+      fallbackTo="/home"
       showHeader={false}
       className="border-r border-border bg-background"
     >

@@ -14,7 +14,7 @@ export function ContextualSidebarFrame({
   surface,
   title,
   icon: Icon,
-  fallbackTo = "/dashboard",
+  fallbackTo = "/home",
   showHeader = true,
   className,
   children,

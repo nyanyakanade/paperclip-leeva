@@ -154,7 +154,16 @@ function boardRoutes(streamlinedUiEnabled: boolean, combinedInboxTasksEnabled: b
   const mergedTasks = streamlinedUiEnabled && combinedInboxTasksEnabled;
   return (
     <>
-      <Route index element={<Navigate to="dashboard" replace />} />
+      <Route index element={<Navigate to="home" replace />} />
+      {["home", ...AGENT_FILTER_TABS.map((tab) => `home/${tab}`)].map((path) => (
+        <Route
+          key={path}
+          path={path}
+          element={streamlinedUiEnabled
+            ? <Agents key="home" page="home" initialView="org" />
+            : <ProductionSurface><ProductionAgents key="home" page="home" /></ProductionSurface>}
+        />
+      ))}
       <Route path="dashboard" element={<Dashboard />} />
       <Route path="dashboard/live" element={<DashboardLive />} />
       <Route
@@ -696,7 +705,7 @@ function CompanyRootRedirect() {
     return <NoCompaniesStartPage />;
   }
 
-  return <Navigate to={`/${targetCompany.issuePrefix}/dashboard`} replace />;
+  return <Navigate to={`/${targetCompany.issuePrefix}/home`} replace />;
 }
 
 function StatusCardsLegacyRedirect() {
