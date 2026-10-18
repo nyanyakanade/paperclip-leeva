@@ -46,6 +46,17 @@ interface Point {
   y: number;
 }
 
+function ruleEndpoints(rule: CollaborationRule, nodes: Map<string, LayoutNode>) {
+  const source = nodes.get(rule.source);
+  const target = nodes.get(rule.target);
+  if (!source || !target) return null;
+  const down = target.y >= source.y;
+  return {
+    source: { x: source.x + CARD_W / 2, y: source.y + (down ? CARD_H : 0) },
+    target: { x: target.x + CARD_W / 2, y: target.y + (down ? 0 : CARD_H) },
+  };
+}
+
 interface TouchGesture {
   mode: "pan" | "pinch" | null;
   startPoint: Point;
@@ -209,11 +220,13 @@ export interface OrgChartProps {
     rules: CollaborationRule[];
     positions: AgentPositions;
     editing: boolean;
+    interactive?: boolean;
     selectedRuleId: string | null;
     selectedAgentId: string | null;
     onMove: (id: string, position: Point) => void;
     onSelectAgent: (id: string) => void;
     onSelectRule: (id: string) => void;
+    onReconnect?: (id: string, end: "source" | "target", agentId: string) => void;
   };
 }
 
@@ -263,6 +276,10 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
   const edges = useMemo(() => collectEdges(layout), [layout]);
   const markerId = useId().replaceAll(":", "");
   const nodeDrag = useRef<{ id: string; startX: number; startY: number; x: number; y: number; moved: boolean } | null>(null);
+  const canManipulate = Boolean(collaboration && (collaboration.interactive ?? collaboration.editing));
+  const [edgeDrag, setEdgeDrag] = useState<{ id: string; end: "source" | "target"; point: Point } | null>(null);
+  const selectedEdge = collaboration?.rules.find((rule) => rule.id === collaboration.selectedRuleId);
+  const selectedEndpoints = selectedEdge ? ruleEndpoints(selectedEdge, nodeMap) : null;
 
   // Compute SVG bounds
   const bounds = useMemo(() => {
@@ -303,9 +320,10 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
 
   // Center the chart on first load
   const hasInitialized = useRef(false);
+  const visibleNodeIds = allNodes.map((node) => node.id).sort().join(",");
   useEffect(() => {
     hasInitialized.current = false;
-  }, [orgTree]);
+  }, [selectedCompanyId, visibleNodeIds]);
 
   useEffect(() => {
     if (hasInitialized.current || allNodes.length === 0 || !containerRef.current) return;
@@ -329,7 +347,7 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const node = nodeDrag.current;
-    if (node && collaboration?.editing) {
+    if (node && collaboration && canManipulate) {
       const dx = (e.clientX - node.startX) / zoom;
       const dy = (e.clientY - node.startY) / zoom;
       if (Math.hypot(dx, dy) > TOUCH_MOVE_THRESHOLD) node.moved = true;
@@ -340,7 +358,7 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
     const dx = e.clientX - dragStart.current.x;
     const dy = e.clientY - dragStart.current.y;
     setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy });
-  }, [dragging, collaboration, zoom]);
+  }, [dragging, collaboration, canManipulate, zoom]);
 
   const handleMouseUp = useCallback(() => {
     if (nodeDrag.current?.moved) {
@@ -397,7 +415,9 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
   }, [bounds]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if ((e.target as Element).closest("[data-collaboration-handle]")) return;
     if (e.touches.length >= 2 && containerRef.current) {
+      nodeDrag.current = null;
       const [first, second] = [e.touches[0]!, e.touches[1]!];
       touchGesture.current = {
         mode: "pinch",
@@ -425,7 +445,17 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
   }, [pan, zoom]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (edgeDrag) return;
     const container = containerRef.current;
+    const node = nodeDrag.current;
+    if (node && collaboration && canManipulate && e.touches.length === 1) {
+      const touch = e.touches[0]!;
+      const dx = (touch.clientX - node.startX) / zoom;
+      const dy = (touch.clientY - node.startY) / zoom;
+      if (Math.hypot(touch.clientX - node.startX, touch.clientY - node.startY) > TOUCH_MOVE_THRESHOLD) node.moved = true;
+      if (node.moved) collaboration.onMove(node.id, { x: Math.max(0, node.x + dx), y: Math.max(0, node.y + dy) });
+      return;
+    }
     if (!container || !touchGesture.current.mode) return;
 
     if (e.touches.length >= 2) {
@@ -472,10 +502,10 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
       x: touchGesture.current.startPan.x + dx,
       y: touchGesture.current.startPan.y + dy,
     });
-  }, [pan, zoom]);
+  }, [pan, zoom, collaboration, canManipulate, edgeDrag]);
 
   const handleTouchEnd = useCallback(() => {
-    if (touchGesture.current.moved) {
+    if (touchGesture.current.moved || nodeDrag.current?.moved) {
       suppressNextCardClick.current = true;
       if (suppressClickTimerRef.current !== null) {
         window.clearTimeout(suppressClickTimerRef.current);
@@ -485,6 +515,7 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
         suppressClickTimerRef.current = null;
       }, 400);
     }
+    nodeDrag.current = null;
     touchGesture.current = {
       mode: null,
       startPoint: { x: 0, y: 0 },
@@ -495,6 +526,25 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
       moved: false,
     };
   }, [pan, zoom]);
+
+  const chartPoint = (clientX: number, clientY: number): Point => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    return { x: (clientX - rect.left - pan.x) / zoom, y: (clientY - rect.top - pan.y) / zoom };
+  };
+  const nodeAtPoint = (point: Point) => allNodes.find((node) => point.x >= node.x && point.x <= node.x + CARD_W && point.y >= node.y && point.y <= node.y + CARD_H);
+  const dropTarget = edgeDrag ? nodeAtPoint(edgeDrag.point)?.id : null;
+  const collaborationPaths = (collaboration?.rules ?? []).flatMap((rule, index, rules) => {
+    const endpoints = ruleEndpoints(rule, nodeMap);
+    if (!endpoints) return [];
+    if (edgeDrag?.id === rule.id) endpoints[edgeDrag.end] = edgeDrag.point;
+    const { source: { x: x1, y: y1 }, target: { x: x2, y: y2 } } = endpoints;
+    const midX = (x1 + x2) / 2 + (index % 3 - 1) * GAP_X;
+    const midY = (y1 + y2) / 2;
+    const pair = rules.filter((other) => (other.source === rule.source && other.target === rule.target) || (other.source === rule.target && other.target === rule.source));
+    const labelY = midY + (pair.findIndex((other) => other.id === rule.id) - (pair.length - 1) / 2) * GAP_X;
+    const color = rule.kind === "dispatch" ? "var(--status-task-icon-in_progress)" : rule.kind === "review" ? "var(--status-task-icon-in_review)" : rule.kind === "escalate" ? "var(--status-task-icon-todo)" : "var(--status-task-icon-done)";
+    return [{ rule, midX, labelY, color, path: `M ${x1} ${y1} Q ${midX} ${y1} ${midX} ${midY} T ${x2} ${y2}` }];
+  });
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Network} message="Select an organization to view the org chart." />;
@@ -549,6 +599,16 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onPointerMove={(event) => {
+          if (edgeDrag && canManipulate) setEdgeDrag({ ...edgeDrag, point: chartPoint(event.clientX, event.clientY) });
+        }}
+        onPointerUp={(event) => {
+          if (!edgeDrag) return;
+          const target = nodeAtPoint(chartPoint(event.clientX, event.clientY));
+          if (target && canManipulate) collaboration?.onReconnect?.(edgeDrag.id, edgeDrag.end, target.id);
+          setEdgeDrag(null);
+        }}
+        onPointerCancel={() => setEdgeDrag(null)}
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -633,28 +693,18 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
                 />
               );
             })}
-            {collaboration?.rules.map((rule, index) => {
-              const source = nodeMap.get(rule.source);
-              const target = nodeMap.get(rule.target);
-              if (!source || !target) return null;
-              const down = target.y >= source.y;
-              const x1 = source.x + CARD_W / 2;
-              const y1 = source.y + (down ? CARD_H : 0);
-              const x2 = target.x + CARD_W / 2;
-              const y2 = target.y + (down ? 0 : CARD_H);
-              const bend = (index % 3 - 1) * GAP_X;
-              const midX = (x1 + x2) / 2 + bend;
-              const midY = (y1 + y2) / 2;
-              const color = rule.kind === "dispatch" ? "var(--status-task-icon-in_progress)" : rule.kind === "review" ? "var(--status-task-icon-in_review)" : rule.kind === "escalate" ? "var(--status-task-icon-todo)" : "var(--status-task-icon-done)";
-              const path = `M ${x1} ${y1} Q ${midX} ${y1} ${midX} ${midY} T ${x2} ${y2}`;
-              const select = () => collaboration.editing && collaboration.onSelectRule(rule.id);
+            {collaborationPaths.map(({ rule, path, color }) => {
               return <g key={rule.id} data-collaboration-edge={rule.id} opacity={rule.enabled ? 1 : 0.4}>
-                <path d={path} fill="none" stroke={color} strokeWidth={collaboration.selectedRuleId === rule.id ? 4 : 2} strokeDasharray={rule.enabled ? undefined : "4 4"} markerEnd={`url(#${markerId})`} />
-                <path d={path} fill="none" stroke="transparent" strokeWidth={16} style={{ pointerEvents: collaboration.editing ? "stroke" : "none", cursor: "pointer" }} onClick={select} />
-                <text x={midX} y={midY} textAnchor="middle" dominantBaseline="middle" fill={color} stroke="var(--background)" strokeWidth={4} paintOrder="stroke" className="text-xs font-medium" style={{ pointerEvents: collaboration.editing ? "auto" : "none", cursor: "pointer" }} onClick={select} role={collaboration.editing ? "button" : undefined} tabIndex={collaboration.editing ? 0 : undefined} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); } }}>
-                  {displayText(rule.kind === "dispatch" ? "Dispatch" : rule.kind === "review" ? "Send for review" : rule.kind === "escalate" ? "Escalate" : "Notify")}
-                </text>
+                <path d={path} fill="none" stroke={color} strokeWidth={collaboration?.selectedRuleId === rule.id ? 4 : 2} strokeDasharray={rule.enabled ? undefined : "4 4"} markerEnd={`url(#${markerId})`} />
+                <path d={path} fill="none" stroke="transparent" strokeWidth={16} style={{ pointerEvents: canManipulate ? "stroke" : "none", cursor: "pointer" }} onClick={() => canManipulate && collaboration?.onSelectRule(rule.id)} />
               </g>;
+            })}
+            {/* Labels sit above every path hit area, including reverse routes. */}
+            {collaborationPaths.map(({ rule, midX, labelY, color }) => {
+              const select = () => canManipulate && collaboration?.onSelectRule(rule.id);
+              return <text key={rule.id} data-collaboration-edge={rule.id} x={midX} y={labelY} textAnchor="middle" dominantBaseline="middle" fill={color} stroke="var(--background)" strokeWidth={4} paintOrder="stroke" opacity={rule.enabled ? 1 : 0.4} className="text-xs font-medium select-none" style={{ pointerEvents: canManipulate ? "auto" : "none", cursor: "pointer" }} onClick={select} role={canManipulate ? "button" : undefined} tabIndex={canManipulate ? 0 : undefined} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); } }}>
+                {displayText(rule.kind === "dispatch" ? "Dispatch" : rule.kind === "review" ? "Send for review" : rule.kind === "escalate" ? "Escalate" : "Notify")}
+              </text>;
             })}
           </g>
         </svg>
@@ -676,7 +726,7 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
               <Card
                 key={node.id}
                 data-org-card
-                className={`block absolute py-0 pointer-events-auto hover:shadow-md hover:border-foreground/20 transition-(--tp-box-shadow-border-color) duration-150 cursor-pointer select-none ${collaboration?.selectedAgentId === node.id ? "ring-2 ring-primary" : ""}`}
+                className={`block absolute py-0 pointer-events-auto hover:shadow-md hover:border-foreground/20 transition-(--tp-box-shadow-border-color) duration-150 select-none ${canManipulate ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} ${collaboration?.selectedAgentId === node.id || dropTarget === node.id ? "ring-2 ring-primary" : ""}`}
                 style={{
                   left: node.x,
                   top: node.y,
@@ -686,10 +736,16 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
                 role={collaboration?.editing ? "button" : undefined}
                 tabIndex={collaboration?.editing ? 0 : undefined}
                 onMouseDown={(event) => {
-                  if (!collaboration?.editing || event.button !== 0) return;
+                  if (!canManipulate || event.button !== 0) return;
                   event.preventDefault();
                   event.stopPropagation();
                   nodeDrag.current = { id: node.id, startX: event.clientX, startY: event.clientY, x: node.x, y: node.y, moved: false };
+                }}
+                onTouchStart={(event) => {
+                  if (!canManipulate || event.touches.length !== 1) return;
+                  event.stopPropagation();
+                  const touch = event.touches[0]!;
+                  nodeDrag.current = { id: node.id, startX: touch.clientX, startY: touch.clientY, x: node.x, y: node.y, moved: false };
                 }}
                 onClick={() => collaboration?.editing ? collaboration.onSelectAgent(node.id) : navigate(agent ? agentUrl(agent) : `/agents/${node.id}`)}
                 onKeyDown={(event) => {
@@ -740,6 +796,23 @@ export function OrgChart({ orgTree: providedOrgTree, agents: providedAgents, emb
             );
           })}
         </div>
+        {canManipulate && selectedEdge && selectedEndpoints && collaboration?.onReconnect && <svg className="absolute inset-0 z-10 h-full w-full pointer-events-none" aria-label={displayText("Drag line endpoints to reconnect")}>
+          <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+            {(["source", "target"] as const).map((end) => {
+              const point = edgeDrag?.id === selectedEdge.id && edgeDrag.end === end ? edgeDrag.point : selectedEndpoints[end];
+              return <circle key={end} data-collaboration-handle={end} cx={point.x} cy={point.y} r={8 / zoom} fill="var(--background)" stroke="var(--primary)" strokeWidth={2 / zoom} className="pointer-events-auto cursor-crosshair"
+                aria-label={displayText(end === "source" ? "Move line source" : "Move line target")}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                  setEdgeDrag({ id: selectedEdge.id, end, point });
+                }}
+              ><title>{displayText(end === "source" ? "Move line source" : "Move line target")}</title></circle>;
+            })}
+          </g>
+        </svg>}
       </div>
     </div>
   );

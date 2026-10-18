@@ -464,6 +464,47 @@ describe("Agents", () => {
     expect(container.textContent).toContain("gpt-5.4");
   });
 
+  it.each([false, true])("allows direct home card dragging before opening the editor (narrow: %s)", async (isNarrow) => {
+    mockSidebarState.isMobile = isNarrow;
+    mockRouterState.pathname = "/home";
+    queryClient.setQueryDefaults(["leeva-collaboration"], { staleTime: Infinity });
+    queryClient.setQueryData(["leeva-collaboration", "company-1"], {
+      version: 3, rules: [], positions: {}, receipt: null,
+      scheduler: { state: "paused", managedExternally: true },
+    });
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(<QueryClientProvider client={queryClient}><ToastProvider>
+        <Agents page="home" initialView="org" />
+      </ToastProvider></QueryClientProvider>);
+    });
+    await flushReact();
+    await flushReact();
+
+    expect(container.querySelector('[data-testid="collaboration-graph"]')).not.toBeNull();
+    const edit = [...container.querySelectorAll("button")].find((button) => button.textContent === "Move cards / edit lines");
+    expect(edit?.disabled).toBe(false);
+    const card = container.querySelector<HTMLElement>("[data-org-card]")!;
+    const viewport = container.querySelector<HTMLElement>('[data-testid="org-chart-viewport"]')!;
+    const startLeft = parseFloat(card.style.left);
+    await act(async () => {
+      card.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 100, clientY: 100 }));
+      viewport.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 180, clientY: 150 }));
+      viewport.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      card.click();
+    });
+    await flushReact();
+    expect(parseFloat(card.style.left)).toBeGreaterThan(startLeft);
+    expect(card.getAttribute("role")).toBe("button");
+    expect(mockRouterState.navigate).not.toHaveBeenCalled();
+    const cancel = [...container.querySelectorAll("button")].find((button) => button.textContent === "Cancel draft")!;
+    await act(async () => { cancel.click(); });
+    expect(parseFloat(container.querySelector<HTMLElement>("[data-org-card]")!.style.left)).toBe(startLeft);
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="List view"]')!.click(); });
+    expect(container.querySelector('[data-testid="collaboration-graph"]')).toBeNull();
+    expect(findAgentRow(container, "Alpha")).not.toBeNull();
+  });
+
   it("gives mobile agent names the full row width after the leading status indicator", async () => {
     mockSidebarState.isMobile = true;
     mockResourceMembershipsApi.listMine.mockResolvedValue({

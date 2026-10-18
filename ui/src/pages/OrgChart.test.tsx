@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { queryKeys } from "@/lib/queryKeys";
-import { OrgChart } from "./OrgChart";
+import { OrgChart, type OrgChartProps } from "./OrgChart";
 
 const navigateMock = vi.fn();
 const orgMock = vi.fn();
@@ -195,12 +195,12 @@ describe("OrgChart mobile gestures", () => {
     vi.clearAllMocks();
   });
 
-  async function renderOrgChart() {
+  async function renderOrgChart(props: OrgChartProps = {}) {
     root = createRoot(container);
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
-          <OrgChart />
+          <OrgChart {...props} />
         </QueryClientProvider>,
       );
     });
@@ -250,6 +250,67 @@ describe("OrgChart mobile gestures", () => {
 
     expect(navigateMock).toHaveBeenCalledWith("/agents/ceo");
   });
+  it("moves an editable card with touch without panning or navigating", async () => {
+    const onMove = vi.fn();
+    const onSelectAgent = vi.fn();
+    const { viewport, layer } = await renderOrgChart({ collaboration: {
+      rules: [], positions: { "agent-1": { x: 100, y: 80 } }, editing: true,
+      selectedRuleId: null, selectedAgentId: null, onMove, onSelectAgent, onSelectRule: vi.fn(),
+    } });
+    const card = container.querySelector<HTMLElement>("[data-org-card]")!;
+    const transform = layer.style.transform;
+    const scale = Number(transform.match(/scale\(([^)]+)\)/)![1]);
+    await act(async () => {
+      card.dispatchEvent(createTouchEvent("touchstart", [{ clientX: 100, clientY: 100 }]));
+      viewport.dispatchEvent(createTouchEvent("touchmove", [{ clientX: 140, clientY: 130 }]));
+      viewport.dispatchEvent(createTouchEvent("touchend", []));
+      card.click();
+    });
+    expect(onMove).toHaveBeenCalledWith("agent-1", { x: 100 + 40 / scale, y: 80 + 30 / scale });
+    expect(layer.style.transform).toBe(transform);
+    expect(onSelectAgent).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("reconnects a selected line endpoint by pointer and cancels a drop on empty space", async () => {
+    const onReconnect = vi.fn();
+    const { viewport, layer } = await renderOrgChart({ collaboration: {
+      rules: [{ id: "line-1", source: "agent-1", target: "agent-2", kind: "notify", enabled: true }],
+      positions: {}, editing: true, interactive: true,
+      selectedRuleId: "line-1", selectedAgentId: null, onMove: vi.fn(), onSelectAgent: vi.fn(), onSelectRule: vi.fn(), onReconnect,
+    } });
+    const match = layer.style.transform.match(/translate\(([^p]+)px, ([^p]+)px\) scale\(([^)]+)\)/)!;
+    const scale = Number(match[3]);
+    const card = container.querySelector<HTMLElement>("[data-org-card]")!;
+    const dropX = Number(match[1]) + (parseFloat(card.style.left) + 50) * scale;
+    const dropY = Number(match[2]) + (parseFloat(card.style.top) + 50) * scale;
+    const handle = container.querySelector('[data-collaboration-handle="target"]')!;
+    await act(async () => { handle.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+    await act(async () => { viewport.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: dropX, clientY: dropY })); });
+    await act(async () => { viewport.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: dropX, clientY: dropY })); });
+    expect(onReconnect).toHaveBeenCalledExactlyOnceWith("line-1", "target", "agent-1");
+    await act(async () => { handle.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+    await act(async () => { viewport.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: -100, clientY: -100 })); });
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the viewport in place when agent data refreshes with the same nodes", async () => {
+    const { viewport, layer } = await renderOrgChart();
+    await act(async () => {
+      viewport.dispatchEvent(createTouchEvent("touchstart", [{ clientX: 100, clientY: 100 }]));
+      viewport.dispatchEvent(createTouchEvent("touchmove", [{ clientX: 140, clientY: 150 }]));
+      viewport.dispatchEvent(createTouchEvent("touchend", []));
+    });
+    const transform = layer.style.transform;
+    await act(async () => {
+      queryClient.setQueryData(queryKeys.org("company-1"), [{ ...orgTree[0], name: "CEO updated" }]);
+    });
+    await flushReact();
+    expect(container.textContent).toContain("CEO updated");
+    expect(layer.style.transform).toBe(transform);
+  });
+
   it("pinch-zooms toward the touch center", async () => {
     const { viewport, layer } = await renderOrgChart();
 

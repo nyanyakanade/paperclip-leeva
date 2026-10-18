@@ -14,6 +14,9 @@ vi.mock("../pages/OrgChart", () => ({ OrgChart: ({ collaboration: editor }: OrgC
   <button onClick={() => editor?.onSelectAgent("a")}>Pick A</button>
   <button onClick={() => editor?.onSelectAgent("b")}>Pick B</button>
   <button onClick={() => editor?.onMove("a", { x: 123, y: 456 })}>Move A</button>
+  <button onClick={() => editor?.onSelectRule("route-1")}>Select line</button>
+  <button onClick={() => editor?.onReconnect?.("route-1", "target", "c")}>Reconnect to C</button>
+  <button onClick={() => editor?.onReconnect?.("route-1", "target", "a")}>Reconnect to A</button>
   <output>{JSON.stringify(editor?.positions)}</output>
 </div> }));
 
@@ -21,6 +24,7 @@ const initial: CollaborationConfig = { version: 2, rules: [], positions: {}, upd
 const agents = [
   { id: "a", name: "A", metadata: { externalKind: "codex_thread", externalId: "thread-a" } },
   { id: "b", name: "B", metadata: { externalKind: "argon", externalId: "argon-b" } },
+  { id: "c", name: "C", metadata: { externalKind: "codex_thread", externalId: "thread-c" } },
 ] as unknown as Agent[];
 let container: HTMLDivElement;
 let root: Root;
@@ -49,10 +53,35 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); });
 
 describe("collaboration publishing", () => {
+  it("starts a layout draft by dragging directly, without opening the editor or publishing", async () => {
+    await render();
+    await click("Move A");
+    expect(container.querySelector("output")?.textContent).toContain("123");
+    expect(container.textContent).toContain("Save rules");
+    expect(api.save).not.toHaveBeenCalled();
+    await click("Cancel draft");
+    expect(container.querySelector("output")?.textContent).toBe("{}");
+  });
+
+  it("reconnects an existing line in a draft, rejects self-links, and saves only on request", async () => {
+    const rule = { id: "route-1", source: "a", target: "b", kind: "dispatch", enabled: true };
+    api.get.mockResolvedValue({ ...initial, rules: [rule] });
+    await render();
+    await click("Select line");
+    await click("Reconnect to A");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Choose two different agents");
+    expect(api.save).not.toHaveBeenCalled();
+    await click("Reconnect to C");
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Target agent"]')?.value).toBe("c");
+    expect(api.save).not.toHaveBeenCalled();
+    await click("Save rules");
+    expect(api.save).toHaveBeenCalledExactlyOnceWith("company-1", { expectedVersion: 2, positions: {}, rules: [{ ...rule, target: "c" }] });
+  });
+
   it("keeps moving and new lines in a draft, then publishes exactly once with the base version", async () => {
     await render();
     expect(container.textContent).toContain("Read by Grok: v1");
-    await click("Edit collaboration");
+    await click("Move cards / edit lines");
     await click("Move A");
     await click("Pick A");
     await click("Pick B");
@@ -70,7 +99,7 @@ describe("collaboration publishing", () => {
 
   it("cancels all draft edits without writing the service", async () => {
     await render();
-    await click("Edit collaboration");
+    await click("Move cards / edit lines");
     await click("Move A");
     await click("Cancel draft");
     expect(api.save).not.toHaveBeenCalled();
@@ -81,7 +110,7 @@ describe("collaboration publishing", () => {
   it("preserves edits after a version conflict and reports the conflict", async () => {
     api.save.mockRejectedValue(new Error("Rules changed elsewhere. Cancel this draft, reload, and apply your changes again."));
     await render();
-    await click("Edit collaboration");
+    await click("Move cards / edit lines");
     await click("Move A");
     await click("Save rules");
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Rules changed elsewhere");
@@ -92,7 +121,7 @@ describe("collaboration publishing", () => {
   it("edits an existing line, supports return reviews, and does not alter reporting relationships", async () => {
     api.get.mockResolvedValue({ ...initial, rules: [{ id: "route-1", source: "a", target: "b", kind: "dispatch", enabled: true }] });
     await render();
-    await click("Edit collaboration");
+    await click("Move cards / edit lines");
     await click("A → B · Dispatch");
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="Relationship"]')!;
     await act(async () => { select.value = "review"; select.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -105,7 +134,7 @@ describe("collaboration publishing", () => {
   it("shows an unavailable service instead of offering an unsavable editor", async () => {
     api.get.mockRejectedValue(new Error("The local rule service is unavailable. Retry after starting it."));
     await render();
-    const edit = [...container.querySelectorAll("button")].find((item) => item.textContent === "Edit collaboration")!;
+    const edit = [...container.querySelectorAll("button")].find((item) => item.textContent === "Move cards / edit lines")!;
     expect(edit.disabled).toBe(true);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("local rule service is unavailable");
     expect(api.save).not.toHaveBeenCalled();

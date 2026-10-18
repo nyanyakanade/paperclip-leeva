@@ -52,11 +52,24 @@ export function CollaborationGraph({ companyId, orgTree, agents }: { companyId: 
   }, [draft]);
 
   const selectRule = (id: string) => {
-    const rule = draft?.rules.find((item) => item.id === id);
-    if (!rule) return;
+    const rule = config?.rules.find((item) => item.id === id);
+    if (!rule || !config || saving) return;
+    if (!draft) setDraft(structuredClone(config));
     setSelectedId(id);
     setForm({ source: rule.source, target: rule.target, kind: rule.kind, enabled: rule.enabled });
     setError(null);
+  };
+  const reconnect = (id: string, end: "source" | "target", agentId: string) => {
+    const original = config?.rules.find((item) => item.id === id);
+    if (!original || !config || saving) return;
+    const rule = { ...original, [end]: agentId };
+    const issue = validateCollaborationRule(rule, config.rules, id);
+    if (issue) { setError(issue); return; }
+    setDraft({ ...config, rules: config.rules.map((item) => item.id === id ? rule : item) });
+    setSelectedId(id);
+    setForm({ source: rule.source, target: rule.target, kind: rule.kind, enabled: rule.enabled });
+    setError(null);
+    setSaved(false);
   };
   const applyLine = () => {
     if (!draft) return;
@@ -96,7 +109,7 @@ export function CollaborationGraph({ companyId, orgTree, agents }: { companyId: 
         <p>Read receipts confirm rule loading, not task execution.</p>
         {saved && !editing && <p className="text-foreground">Rules published. They apply to future scheduling after Grok reads this version.</p>}
       </div>
-      {!editing ? <Button size="sm" variant="outline" disabled={!query.data || query.isError} onClick={() => { setDraft(structuredClone(query.data!)); resetForm(); setSaved(false); }}>Edit collaboration</Button> : <div className="flex items-center gap-2">
+      {!editing ? <Button size="sm" variant="outline" disabled={!query.data || query.isError} onClick={() => { setDraft(structuredClone(query.data!)); resetForm(); setSaved(false); }}>Move cards / edit lines</Button> : <div className="flex items-center gap-2">
         <Button size="sm" variant="ghost" disabled={saving} onClick={cancel}>Cancel draft</Button>
         <Button size="sm" disabled={saving || Boolean(changedElsewhere) || Boolean(unappliedLine)} onClick={() => void save()}>{displayText(saving ? "Saving..." : "Save rules")}</Button>
       </div>}
@@ -108,6 +121,20 @@ export function CollaborationGraph({ companyId, orgTree, agents }: { companyId: 
     {changedElsewhere && <p role="alert" className="text-sm text-destructive">Rules changed elsewhere. Cancel this draft, reload, and apply your changes again.</p>}
     {error && <p role="alert" className="text-sm text-destructive">{displayText(error)}</p>}
     {unmappedAgents.length > 0 && <p className="text-xs text-muted-foreground"><span>No supported delivery mapping; routes to these agents cannot execute</span>: {unmappedAgents.map((agent) => agent.name).join(", ")}{" · "}<span>Grok can be a source, but it is not a delivery target.</span></p>}
+    <p className="text-xs text-muted-foreground">Drag cards directly. Select a colored line, then drag either endpoint onto another agent. Save to keep changes.</p>
+    <p className="text-xs text-muted-foreground">Gray dashed lines show reporting only. Colored arrows control collaboration. Moving a card only changes its layout.</p>
+    <OrgChart embedded orgTree={orgTree} agents={agents} collaboration={{
+      rules: config?.rules ?? [], positions: config?.positions ?? {}, editing: editing && !saving,
+      interactive: Boolean(config) && !saving,
+      selectedRuleId: selectedId, selectedAgentId: editing ? form.source : null,
+      onMove: (id, position) => {
+        if (!config || saving) return;
+        setDraft((current) => { const base = current ?? config; return { ...base, positions: { ...base.positions, [id]: position } }; });
+        setSaved(false);
+      },
+      onSelectAgent: (id) => { if (!form.source || (form.source && form.target)) { setSelectedId(null); setForm({ ...blankRule(), source: id }); } else setForm({ ...form, target: id }); },
+      onSelectRule: selectRule, onReconnect: reconnect,
+    }} />
     {editing && <div className="space-y-3 rounded-lg border border-border p-3">
       <p className="text-xs text-muted-foreground">Unsaved draft. Drag cards to move them. Click two cards to choose source and target; click a colored line to edit it.</p>
       <div className="flex flex-wrap items-end gap-3">
@@ -133,16 +160,8 @@ export function CollaborationGraph({ companyId, orgTree, agents }: { companyId: 
       <p className="text-xs text-muted-foreground">{displayText(kindHelp[form.kind])} <span>Add or update the line before saving all rules.</span></p>
       {unappliedLine && <p className="text-xs text-foreground">Apply line changes before publishing, or choose New line to discard them.</p>}
     </div>}
-    <p className="text-xs text-muted-foreground">Gray dashed lines show reporting only. Colored arrows control collaboration. Moving a card only changes its layout.</p>
-    <OrgChart embedded orgTree={orgTree} agents={agents} collaboration={{
-      rules: config?.rules ?? [], positions: config?.positions ?? {}, editing: editing && !saving,
-      selectedRuleId: selectedId, selectedAgentId: editing ? form.source : null,
-      onMove: (id, position) => setDraft((current) => current ? { ...current, positions: { ...current.positions, [id]: position } } : null),
-      onSelectAgent: (id) => { if (!form.source || (form.source && form.target)) { setSelectedId(null); setForm({ ...blankRule(), source: id }); } else setForm({ ...form, target: id }); },
-      onSelectRule: selectRule,
-    }} />
     {config && <div className="flex flex-wrap gap-2" aria-label="Collaboration lines">
-      {config.rules.length === 0 ? <p className="text-xs text-muted-foreground">No collaboration rules published yet. Reporting lines do not dispatch tasks.</p> : config.rules.map((rule) => <Button key={rule.id} size="sm" variant={selectedId === rule.id ? "secondary" : "ghost"} disabled={!editing || saving} onClick={() => selectRule(rule.id)} className="h-auto whitespace-normal text-xs">
+      {config.rules.length === 0 ? <p className="text-xs text-muted-foreground">No collaboration rules published yet. Reporting lines do not dispatch tasks.</p> : config.rules.map((rule) => <Button key={rule.id} size="sm" variant={selectedId === rule.id ? "secondary" : "ghost"} disabled={saving} onClick={() => selectRule(rule.id)} className="h-auto whitespace-normal text-xs">
         {agents.find((agent) => agent.id === rule.source)?.name ?? rule.source} → {agents.find((agent) => agent.id === rule.target)?.name ?? rule.target} · {displayText(kindLabels[rule.kind])}{rule.enabled ? "" : ` · ${displayText("Disabled")}`}
       </Button>)}
     </div>}

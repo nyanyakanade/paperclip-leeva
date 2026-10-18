@@ -207,7 +207,8 @@ export function Agents({ initialView = "list", page = "agents" }: { initialView?
   const pathSegment = location.pathname.split("/").pop() ?? "all";
   const requestedTab: FilterTab = isFilterTab(pathSegment) ? pathSegment : "all";
   const [view, setView] = useState<AgentsView>(() => streamlinedUiEnabled ? initialView : "org");
-  const forceListView = (!streamlinedUiEnabled || page === "home") && isMobile;
+  // The home canvas must remain usable in the narrow desktop side panel too.
+  const forceListView = page !== "home" && !streamlinedUiEnabled && isMobile;
   const effectiveView: AgentsView = forceListView ? "list" : view;
 
   useEffect(() => {
