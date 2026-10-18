@@ -8,6 +8,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { queryKeys } from "../lib/queryKeys";
 import { InboxAgentPolicyControl } from "@/components/InboxAgentPolicyControl";
+import { LanguageToggle } from "@/components/LanguageToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -150,6 +151,10 @@ export function ProfileSettings() {
           Control how your account appears in the sidebar and other board surfaces.
         </p>
       </div>
+
+      <Card className="p-4">
+        <LanguageToggle />
+      </Card>
 
       {actionError ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">

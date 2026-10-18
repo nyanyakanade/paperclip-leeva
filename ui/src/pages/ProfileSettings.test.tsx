@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sanitizeAssetNamespace } from "@paperclipai/shared";
 import { ProfileSettings } from "./ProfileSettings";
+import { i18n } from "@/i18n";
+import { UI_LOCALE_STORAGE_KEY } from "@/i18n/locale-preference";
 
 const mockAuthApi = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -99,6 +101,36 @@ describe("ProfileSettings", () => {
     expect(container.textContent).not.toContain("Keyboard shortcuts");
     expect(container.querySelector('[aria-label="Toggle keyboard shortcuts"]')).toBeNull();
     await act(async () => root.unmount());
+  });
+
+  it("offers and remembers language selection in personal settings", async () => {
+    const root = createRoot(container);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const previousLocale = i18n.language;
+    const previousPreference = localStorage.getItem(UI_LOCALE_STORAGE_KEY);
+    try {
+      await act(async () => {
+        root.render(<QueryClientProvider client={queryClient}><ProfileSettings /></QueryClientProvider>);
+      });
+      await flushReact();
+      expect(container.textContent).toContain("语言 / Language");
+      const localeButton = (text: string) => Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === text)!;
+      await act(async () => { localeButton("中文").click(); });
+      expect(i18n.language).toBe("zh-CN");
+      expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("zh-CN");
+      expect(localeButton("中文").getAttribute("aria-pressed")).toBe("true");
+      await act(async () => { localeButton("EN").click(); });
+      expect(i18n.language).toBe("en");
+      expect(localStorage.getItem(UI_LOCALE_STORAGE_KEY)).toBe("en");
+      expect(localeButton("EN").getAttribute("aria-pressed")).toBe("true");
+      expect(mockAuthApi.updateProfile).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => { root.unmount(); });
+      await i18n.changeLanguage(previousLocale);
+      if (previousPreference === null) localStorage.removeItem(UI_LOCALE_STORAGE_KEY);
+      else localStorage.setItem(UI_LOCALE_STORAGE_KEY, previousPreference);
+    }
   });
 
   it("uploads a clicked avatar into Paperclip storage and persists the returned asset path", async () => {

@@ -2,6 +2,15 @@
 
 Guidance for human and AI contributors working in this repository.
 
+## Leeva fork maintenance
+
+- Maintain customizations on `leeva`; `origin` is `nyanyakanade/paperclip-leeva` and `upstream` is `paperclipai/paperclip`.
+- Read `README.leeva.md` for the pinned baseline and customization boundaries.
+- Keep language selection inside Settings. Do not add a persistent floating language switch.
+- Reuse the official local Codex CLI adapter; keep account credentials and instance state outside Git.
+- Prefer scoped checks and ordinary reasoning for routine changes; escalate investigation when a concrete failure, ambiguity, or architectural decision requires it.
+- Treat source tests, live UI deployment, native Codex connectivity, and GitHub push as separate verification results.
+
 ## 1. Purpose
 
 Paperclip is a control plane for AI-agent companies.

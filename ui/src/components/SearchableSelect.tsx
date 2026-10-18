@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { fuzzyTextMatchesQuery, normalizeSearchText, scoreFuzzyTextFields } from "@/lib/searchable-select";
 import { cn } from "@/lib/utils";
 import { useMobileEntityPickerViewportStyle } from "@/hooks/useMobileEntityPickerViewportStyle";
+import { displayProperty } from "@/i18n/display";
 
 export interface SearchableSelectOption<TValue extends string = string> {
   key: string;
@@ -80,12 +81,13 @@ export interface SearchableSelectProps<
 }
 
 function defaultFilterOption(option: SearchableSelectOption, query: string) {
-  return fuzzyTextMatchesQuery(`${option.label} ${option.searchText ?? ""}`, query);
+  return fuzzyTextMatchesQuery(`${option.label} ${displayProperty(option, "label")} ${option.searchText ?? ""}`, query);
 }
 
 function defaultScoreOption(option: SearchableSelectOption, query: string) {
   return scoreFuzzyTextFields([
     { text: option.label, weight: 0 },
+    { text: displayProperty(option, "label"), weight: 0 },
     { text: option.searchText, weight: 20 },
   ], query);
 }

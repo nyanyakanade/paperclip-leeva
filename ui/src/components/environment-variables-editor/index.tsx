@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
+import { isUiCommitAction } from "@/i18n/display";
 import { AlertCircle, KeyRound, Plus, RotateCcw, Save, UserRound } from "lucide-react";
 import type { CompanySecret, EnvBinding, UserSecretDefinition } from "@paperclipai/shared";
 import { cn } from "@/lib/utils";
@@ -316,7 +317,7 @@ export const EnvironmentVariablesEditor = forwardRef<EnvironmentVariablesEditorH
       const button = target.closest("button");
       if (!button || button.disabled) return;
       const label = `${button.getAttribute("aria-label") ?? ""} ${button.textContent ?? ""}`;
-      if (button.type === "submit" || /\b(save|create|update|test|import)\b/i.test(label)) {
+      if (button.type === "submit" || isUiCommitAction(label)) {
         flushPendingDraft();
       }
     }

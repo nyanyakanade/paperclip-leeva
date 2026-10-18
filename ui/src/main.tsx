@@ -21,6 +21,7 @@ import { PluginLauncherProvider } from "./plugins/launchers";
 import { startPerfMeasureReaper } from "./lib/perf-measure-reaper";
 import { getOrCreatePaperclipReactRoot } from "./lib/react-root";
 import { startServiceWorkerUpdates } from "./lib/service-worker-updates";
+import { LocaleBoundary } from "./i18n/LocaleBoundary";
 import "@mdxeditor/editor/style.css";
 import "./index.css";
 
@@ -63,6 +64,7 @@ if (!rootElement) throw new Error("Paperclip root element is missing");
 getOrCreatePaperclipReactRoot(window, rootElement).render(
   <StrictMode>
     <AppErrorBoundary>
+      <LocaleBoundary>
       <QueryClientProvider client={queryClient}>
         <SentryGate />
         <ThemeProvider>
@@ -91,6 +93,7 @@ getOrCreatePaperclipReactRoot(window, rootElement).render(
           </BrowserRouter>
         </ThemeProvider>
       </QueryClientProvider>
+      </LocaleBoundary>
     </AppErrorBoundary>
   </StrictMode>
 );

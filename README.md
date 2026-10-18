@@ -1,3 +1,5 @@
+> **LEEVA fork:** Chinese UI and local Codex CLI setup are maintained on `leeva`. See [中文说明 / fork maintenance](README.leeva.md).
+
 <p align="center">
   <img src="doc/assets/banner.jpg" alt="Paperclip is the app people use to manage AI agents for work." width="720" />
 </p>
