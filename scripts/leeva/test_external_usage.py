@@ -91,8 +91,8 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(result["taskAudit"]["totals"]["total"], 345)
         self.assertTrue(result["taskAudit"]["rows"][0]["partialRange"])
 
-    def claude_log(self, records, project="test-project"):
-        path = self.mirror.claude_projects / project / (ROOT + ".jsonl")
+    def claude_log(self, records, project="test-project", root=ROOT):
+        path = self.mirror.claude_projects / project / (root + ".jsonl")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("".join(json.dumps(r) + "\n" for r in records))
         return path
@@ -161,6 +161,76 @@ class UsageTest(unittest.TestCase):
         self.mirror.refresh(CID, agents)
         self.assertEqual(self.summary(agents)["rows"][0]["status"], "unavailable")
         self.assertIsNone(self.summary(agents)["rows"][0]["syncedAt"])
+
+    def test_claude_history_merges_inherited_responses_once_and_keeps_original_day(self):
+        current = agent(kind="claude_session")
+        # Same content/usage in a genuinely new response remains billable.
+        self.claude_log([claude_record("shared"), claude_record("new"), claude_record("new"),
+                         claude_record("foreign", CHILD), claude_record("side", isSidechain=True)])
+        self.mirror.refresh(CID, [current])  # Copied response imported first.
+        old_shared, old_only = claude_record("shared", CHILD), claude_record("old", CHILD)
+        for record in (old_shared, old_only):
+            record["timestamp"] = "2026-10-18T08:00:00Z"
+        self.claude_log([old_shared, old_only], root=CHILD)
+        current["metadata"]["usageHistorySessionIds"] = [CHILD, CHILD, ROOT]
+        self.mirror.refresh(CID, [current])
+        self.mirror.refresh(CID, [current])
+        result = self.summary([current])
+        self.assertEqual(result["totals"], dict(requests=3, fresh=60, cached=240, written=15, output=30, total=345))
+        self.assertEqual(result["rows"][0]["sessionCount"], 2)
+        self.assertEqual(result["rows"][0]["status"], "connected")
+        self.assertEqual([(d["date"], d["total"]) for d in result["daily"]],
+                         [("2026-10-18", 230), ("2026-10-19", 115)])
+        self.assertEqual(self.summary([current], begin="2026-10-19T00:00:00Z")["totals"]["requests"], 1)
+
+    def test_claude_history_source_failure_keeps_counts_and_recovers(self):
+        current = agent(kind="claude_session")
+        current["metadata"]["usageHistorySessionIds"] = [CHILD]
+        self.claude_log([claude_record("new")])
+        old_path = self.claude_log([claude_record("old", CHILD)], root=CHILD)
+        self.mirror.refresh(CID, [current])
+        old_path.unlink()
+        self.mirror.refresh(CID, [current])
+        result = self.summary([current])
+        self.assertEqual(result["totals"]["total"], 230)
+        self.assertEqual(result["rows"][0]["status"], "unavailable")
+        self.claude_log([claude_record("old", CHILD)], root=CHILD)
+        self.mirror.refresh(CID, [current])
+        self.assertEqual(self.summary([current])["rows"][0]["status"], "connected")
+
+    def test_claude_overlapping_histories_cannot_double_company_totals(self):
+        self.claude_log([claude_record("new")])
+        self.claude_log([claude_record("old", CHILD)], root=CHILD)
+        current = agent(kind="claude_session")
+        current["metadata"]["usageHistorySessionIds"] = [CHILD]
+        old = agent(CHILD, kind="claude_session", identifier="old-agent")
+        for agents in ([current, old], [old, current]):
+            self.mirror.refresh(CID, agents)
+            result = self.summary(agents)
+            self.assertEqual(result["totals"]["total"], 230)
+            self.assertEqual(sum(d["total"] for d in result["daily"]), 230)
+            self.assertEqual(result["rows"][1]["excludedSessionCount"], 1)
+
+    def test_claude_invalid_history_is_not_scanned_or_reported_connected(self):
+        self.claude_log([claude_record()])
+        current = agent(kind="claude_session")
+        for bad in (["../*"], CHILD, [None]):
+            current["metadata"]["usageHistorySessionIds"] = bad
+            self.mirror.refresh(CID, [current])
+            self.assertEqual(self.summary([current])["rows"][0]["status"], "unavailable")
+
+    def test_claude_conflicting_inherited_counts_preserve_last_good_values(self):
+        self.claude_log([claude_record("shared")])
+        current = agent(kind="claude_session")
+        self.mirror.refresh(CID, [current])
+        bad = claude_record("shared", CHILD)
+        bad["message"]["usage"]["output_tokens"] += 1
+        self.claude_log([bad], root=CHILD)
+        current["metadata"]["usageHistorySessionIds"] = [CHILD]
+        self.mirror.refresh(CID, [current])
+        result = self.summary([current])
+        self.assertEqual(result["totals"]["total"], 115)
+        self.assertEqual(result["rows"][0]["status"], "unavailable")
 
     def test_cache_and_reasoning_are_not_double_counted(self):
         c = codex_event(record(), meta(), "test")

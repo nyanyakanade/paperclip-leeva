@@ -76,6 +76,12 @@ export function ExternalUsagePanel({ companyId, from, to, enabled = true }: {
                 return <tr key={row.agentId} className="border-b last:border-0">
                   <th scope="row" className="px-3 py-3 font-medium">
                     {row.name}
+                    {(row.sessionCount ?? 0) > 1 && <div className="mt-1 text-xs font-normal text-muted-foreground">
+                      {t("mergedSessions", { count: row.sessionCount })}
+                    </div>}
+                    {(row.excludedSessionCount ?? 0) > 0 && <div className="mt-1 text-xs font-normal text-muted-foreground">
+                      {t("excludedSessions", { count: row.excludedSessionCount })}
+                    </div>}
                     {row.syncedAt && <div className="mt-1 whitespace-nowrap text-xs font-normal text-muted-foreground">
                       {t("synced")}: {date(row.syncedAt)}
                     </div>}

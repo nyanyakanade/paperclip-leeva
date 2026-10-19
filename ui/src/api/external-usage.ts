@@ -15,6 +15,8 @@ export interface ExternalUsageRow extends UsageTotals {
   firstEvent: string | null;
   lastEvent: string | null;
   costCents: null;
+  sessionCount?: number;
+  excludedSessionCount?: number;
 }
 export interface ExternalUsage {
   taskAudit?: TaskUsageAudit;

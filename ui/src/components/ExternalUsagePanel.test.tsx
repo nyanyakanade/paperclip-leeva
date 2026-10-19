@@ -55,6 +55,18 @@ it("shows unknown instead of zero for unmapped sources", async () => {
   expect(container.textContent).not.toContain("110");
 });
 
+it("shows one renamed agent with merged history and explicit overlap exclusions", async () => {
+  await i18n.changeLanguage("zh-CN");
+  get.mockResolvedValue({ totals: counts, rows: [{ ...row, name: "claude-ag", provider: "claude",
+    sessionCount: 2, excludedSessionCount: 1 }], refreshing: false });
+  await render();
+  expect(container.textContent).toContain("claude-ag");
+  expect(container.textContent).toContain("合并 2 个会话 · 响应 ID 去重");
+  expect(container.textContent).toContain("另有 1 个会话已归属其他节点 · 已排除");
+  expect(container.querySelectorAll("tbody tr")).toHaveLength(1);
+  expect(container.textContent).not.toContain("amcm-09");
+});
+
 it("retains saved usage when a source fails and surfaces service errors", async () => {
   get.mockResolvedValue({ totals: counts, rows: [{ ...row, status: "unavailable" }], refreshing: false });
   await render();

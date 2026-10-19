@@ -21,6 +21,23 @@ PROVIDERS = {"codex_thread": "codex", "argon": "argon", "claude_session": "claud
              "deepseek_harness_session": "deepseek"}
 
 
+def usage_roots(meta):
+    """Historical IDs affect accounting only, never the current dispatch target."""
+    root = meta.get("externalId")
+    if meta.get("externalKind") != "claude_session":
+        return [root]
+    history = meta.get("usageHistorySessionIds", [])
+    if not isinstance(history, list) or len(history) > 100:
+        raise ValueError("Invalid usage history")
+    roots = []
+    for value in [*history, root]:
+        if not isinstance(value, str) or value != str(uuid.UUID(value)):
+            raise ValueError("Invalid usage session ID")
+        if value not in roots:
+            roots.append(value)
+    return roots
+
+
 def timestamp(value):
     date = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if date.tzinfo is None:
@@ -182,6 +199,12 @@ class UsageMirror:
         if prior:
             db.execute("UPDATE events SET root=? WHERE provider=? AND identity=? AND source=?",
                        (root, provider, identity, source))
+            if provider == "claude":
+                # A copied response can be imported before its original log.
+                # Keep the earliest completed occurrence, never the copy's day.
+                db.execute("""UPDATE events SET root=?,source=?,model=?,occurred=?
+                           WHERE provider=? AND identity=? AND occurred>?""",
+                           (root, source, model, ts, provider, identity, ts))
 
     def inventory(self):
         found = []
@@ -304,10 +327,20 @@ class UsageMirror:
                  if (a.get("metadata") or {}).get("externalKind") == "codex_thread"}
         seen = set()
         try:
+            sources = []
             for agent in agents:
                 meta = agent.get("metadata") or {}
                 kind, root = meta.get("externalKind"), meta.get("externalId")
-                if kind not in PROVIDERS or not root or (kind, root) in seen:
+                if kind not in PROVIDERS or not root:
+                    continue
+                try:
+                    sources.extend((kind, member) for member in usage_roots(meta))
+                except ValueError:
+                    db.execute("INSERT INTO status VALUES (?,NULL,?) ON CONFLICT(key) DO UPDATE SET error=excluded.error",
+                               (kind + ":" + root, "InvalidUsageHistory"))
+                    db.commit()
+            for kind, root in sources:
+                if (kind, root) in seen:
                     continue
                 seen.add((kind, root))
                 key = kind + ":" + root
@@ -382,32 +415,45 @@ class UsageMirror:
                 meta = agent.get("metadata") or {}
                 kind, root = meta.get("externalKind"), meta.get("externalId")
                 supported = kind in PROVIDERS and bool(root)
-                duplicate = supported and (kind, root) in seen
-                seen.add((kind, root))
+                invalid_scope = False
+                try:
+                    requested = usage_roots(meta) if supported else []
+                except ValueError:
+                    requested, invalid_scope = [], True
+                members = [member for member in requested if (kind, member) not in seen]
+                excluded = len(requested) - len(members)
+                duplicate = bool(requested) and not members
+                seen.update((kind, member) for member in members)
                 provider = PROVIDERS.get(kind)
-                result = db.execute("""SELECT count(*) AS requests, coalesce(sum(fresh),0) AS fresh,
+                slots = ",".join("?" for _ in members)
+                scope = (provider, *members, lower, upper)
+                result = db.execute(f"""SELECT count(*) AS requests, coalesce(sum(fresh),0) AS fresh,
                   coalesce(sum(cached),0) AS cached, coalesce(sum(written),0) AS written,
                   coalesce(sum(output),0) AS output, min(occurred) AS firstEvent, max(occurred) AS lastEvent
-                  FROM events WHERE provider=? AND root=? AND occurred>=? AND occurred<=?""",
-                                    (provider, root, lower, upper)).fetchone() if supported and not duplicate else None
-                state = db.execute("SELECT success,error FROM status WHERE key=?", (str(kind) + ":" + str(root),)).fetchone() if supported else None
+                  FROM events WHERE provider=? AND root IN ({slots}) AND occurred>=? AND occurred<=?""",
+                                    scope).fetchone() if members else None
+                states = [db.execute("SELECT success,error FROM status WHERE key=?", (kind + ":" + member,)).fetchone()
+                          for member in members]
+                failed = invalid_scope or any(state and state["error"] for state in states)
+                ready = bool(states) and all(state and state["success"] for state in states)
+                synced = min(state["success"] for state in states) if ready else None
                 row = dict(result) if result else dict(requests=0, fresh=0, cached=0, written=0, output=0, firstEvent=None, lastEvent=None)
                 row.update(agentId=agent["id"], name=agent["name"], provider=provider if supported else kind,
                            status="duplicate_mapping" if duplicate else "unsupported" if not supported else
-                           "unavailable" if state and state["error"] else "connected" if state and state["success"] else "pending",
-                           syncedAt=state["success"] if state else None, costCents=None)
+                           "unavailable" if failed else "connected" if ready else "pending",
+                           syncedAt=synced, costCents=None, sessionCount=len(members), excludedSessionCount=excluded)
                 row["total"] = sum(row[k] for k in ("fresh", "cached", "written", "output"))
                 if kind == "grok_routine":
                     row.update(status="quota_only" if grok_account["status"] == "connected" else grok_account["status"],
                                syncedAt=grok_account["syncedAt"])
                 rows.append(row)
-                if supported and not duplicate:
-                    days = db.execute("""SELECT strftime('%Y-%m-%d',occurred,'+8 hours') AS date,
+                if members:
+                    days = db.execute(f"""SELECT strftime('%Y-%m-%d',occurred,'+8 hours') AS date,
                       count(*) AS requests, sum(fresh) AS fresh, sum(cached) AS cached,
                       sum(written) AS written, sum(output) AS output,
                       sum(fresh+cached+written+output) AS total
-                      FROM events WHERE provider=? AND root=? AND occurred>=? AND occurred<=?
-                      GROUP BY date ORDER BY date""", (provider, root, lower, upper))
+                      FROM events WHERE provider=? AND root IN ({slots}) AND occurred>=? AND occurred<=?
+                      GROUP BY date ORDER BY date""", scope)
                     daily.extend({**dict(day), "agentId": agent["id"]} for day in days)
         finally:
             db.close()
