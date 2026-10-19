@@ -137,7 +137,57 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(row["status"], "unavailable")
         self.assertIsNone(row["syncedAt"])
         self.assertIsNone(row["costCents"])
-        self.assertEqual(self.summary([agent(kind="grok_routine")])["rows"][0]["status"], "unsupported")
+        self.assertEqual(self.summary([agent(kind="grok_routine")])["rows"][0]["status"], "pending")
+
+    def test_grok_is_account_quota_not_tokens_or_date_scoped_routine_usage(self):
+        self.log()
+        reads = []
+        def read():
+            reads.append(True)
+            return dict(percentUsed=42.12, nextResetMs=1793000000000, planLabel="SuperGrok", secret="ignored")
+        self.mirror.grok_reader = read
+        agents = [agent(), agent("argon-codex", "grok_routine", "grok"), agent("other", "grok_routine", "other")]
+        self.mirror.refresh(CID, agents)
+        result = self.summary(agents)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(result["totals"]["total"], 110)
+        self.assertEqual(result["rows"][1]["status"], "quota_only")
+        self.assertFalse(result["grokAccount"]["tokenUsageAvailable"])
+        self.assertEqual(result["grokAccount"]["scope"], "account")
+        self.assertNotIn("secret", result["grokAccount"])
+        filtered = self.summary(agents, begin="2026-10-20T00:00:00Z")
+        self.assertEqual(filtered["totals"]["total"], 0)
+        self.assertEqual(filtered["grokAccount"], result["grokAccount"])
+        self.assertIsNone(self.summary([agent()])["grokAccount"])
+
+    def test_grok_zero_is_valid_missing_or_invalid_preserves_stale_snapshot(self):
+        agents = [agent("argon-codex", "grok_routine")]
+        self.mirror.grok_reader = lambda: dict(percentUsed=0, nextResetMs=1793000000000)
+        self.mirror.refresh(CID, agents)
+        original = self.summary(agents)["grokAccount"]
+        self.assertEqual(original["percentUsed"], 0)
+        for bad in [None, {}, dict(percentUsed=None, nextResetMs=1), dict(percentUsed=-1, nextResetMs=1),
+                    dict(percentUsed=float("nan"), nextResetMs=1), dict(percentUsed=True, nextResetMs=1)]:
+            self.mirror.grok_reader = lambda: bad
+            self.mirror.refresh(CID, agents)
+            result = self.summary(agents)
+            self.assertEqual(result["grokAccount"]["status"], "unavailable")
+            self.assertEqual(result["grokAccount"]["syncedAt"], original["syncedAt"])
+            self.assertEqual(result["grokAccount"]["percentUsed"], 0)
+        self.mirror.grok_reader = lambda: dict(percentUsed=101, nextResetMs=1793000000000)
+        self.mirror.refresh(CID, agents)
+        self.assertEqual(self.summary(agents)["grokAccount"]["status"], "connected")
+
+    def test_grok_without_mapping_does_not_read_and_first_failure_is_not_zero(self):
+        with patch.object(self.mirror, "grok_reader", side_effect=OSError("offline")) as reader:
+            self.mirror.refresh(CID, [agent()])
+            reader.assert_not_called()
+            agents = [agent("argon-codex", "grok_routine")]
+            self.mirror.refresh(CID, agents)
+            result = self.summary(agents)
+            self.assertEqual(result["grokAccount"]["status"], "unavailable")
+            self.assertNotIn("percentUsed", result["grokAccount"])
+            self.assertIsNone(result["grokAccount"]["syncedAt"])
 
     def test_duplicate_mapping_is_explicit_and_not_summed_twice(self):
         self.log()

@@ -10,7 +10,7 @@ export interface ExternalUsageRow extends UsageTotals {
   agentId: string;
   name: string;
   provider: string | null;
-  status: "connected" | "pending" | "unsupported" | "unavailable" | "duplicate_mapping";
+  status: "connected" | "pending" | "unsupported" | "unavailable" | "duplicate_mapping" | "quota_only";
   syncedAt: string | null;
   firstEvent: string | null;
   lastEvent: string | null;
@@ -21,6 +21,15 @@ export interface ExternalUsage {
   totals: UsageTotals;
   refreshing: boolean;
   costCents: null;
+  grokAccount?: {
+    status: "connected" | "pending" | "unavailable";
+    scope: "account";
+    tokenUsageAvailable: false;
+    percentUsed?: number;
+    resetAt?: string;
+    planLabel?: string | null;
+    syncedAt: string | null;
+  } | null;
 }
 
 export const externalUsageApi = {

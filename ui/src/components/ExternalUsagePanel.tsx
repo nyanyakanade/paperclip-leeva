@@ -45,6 +45,20 @@ export function ExternalUsagePanel({ companyId, from, to, enabled = true }: {
             ))}
           </div>
           <p className="text-sm">{t("money")}</p>
+          {data.grokAccount && <section aria-label={t("grokTitle")} className="space-y-2 rounded-lg border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-medium">{t("grokTitle")}{data.grokAccount.planLabel ? ` · ${data.grokAccount.planLabel}` : ""}</h3>
+              <span className="text-xs text-muted-foreground">{t(data.grokAccount.status === "connected" ? "quota_only" : data.grokAccount.status)}</span>
+            </div>
+            <div className="text-lg font-semibold tabular-nums">
+              {data.grokAccount.percentUsed != null
+                ? t("grokUsed", { percent: data.grokAccount.percentUsed.toLocaleString(i18n.language, { maximumFractionDigits: 2 }) })
+                : "—"}
+            </div>
+            <p className="text-xs text-muted-foreground">{t("grokReset")}: {date(data.grokAccount.resetAt ?? null)} · {t("synced")}: {date(data.grokAccount.syncedAt)}</p>
+            {data.grokAccount.status === "unavailable" && <p role="status" className="text-sm text-destructive">{t("grokStale")}</p>}
+            <p className="text-xs leading-5 text-muted-foreground">{t("grokScope")}</p>
+          </section>}
           {!data.rows.length ? <p>{t("empty")}</p> : <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <caption className="sr-only">{t("title")}</caption>

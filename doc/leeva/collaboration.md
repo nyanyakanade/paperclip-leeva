@@ -63,7 +63,7 @@ python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
 
 ## 原应用用量接入（2026-10-19）
 
-审计 → 费用顶部的“原应用用量”从同一本机服务读取 `GET /api/companies/:companyId/external-usage?from=ISO&to=ISO`。公司 ID 先向 Paperclip 校验，再按智能体 `metadata.externalKind/externalId` 选择来源；不是读取整个账号后塞进一个项目。该接口只读，沿用 loopback、Host 和 Origin 限制，不适用于远程、多租户部署。
+审计 → 费用顶部的“原应用用量”从同一本机服务读取 `GET /api/companies/:companyId/external-usage?from=ISO&to=ISO`。公司 ID 先向 Paperclip 校验，再按智能体 `metadata.externalKind/externalId` 选择会话 Token 来源。Grok 仅有账户额度，作为独立快照展示，不计入项目 Token 合计。该接口只读，沿用 loopback、Host 和 Origin 限制，不适用于远程、多租户部署。
 
 - Codex：读取当前映射会话和明确 `subagent` 后代的本机 `token_usage_record`，按 response ID 去重，跳过继承记录、普通分叉和系统审批；直接映射的子会话单独归属。只保存用量、时间、模型与来源标识，不保存正文。
 - Argon：复用相邻 `../gemini-api-bridge/gemini_api.py` 的受限只读接口，读取映射会话主轨迹的步骤用量和重试记录。只收终态记录；response ID 优先、message ID 兜底去重，不把同一次请求的重试元数据再加一次。新步骤、最近 50 步和未结束步骤增量回读。子轨迹不在范围内。
@@ -74,11 +74,20 @@ python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
 
 部署时重新构建并通过 `deploy-ui.mjs` 部署 UI，重启既有 `com.leeva.paperclip-rules` 服务以加载新的只读端点。无数据库迁移；不需要重启 Codex、Gemini、Grok 或 Paperclip 主服务。
 
+### Grok 账户额度（部分接入）
+
+- 公司含 `grok_routine` 映射时，固定读取本机已开放的 `127.0.0.1:9334`，只接受 `/Applications/Grok Bot.app` 的唯一 renderer 目标。`read-grok-usage.mjs` 通过固定的 `window.desktop.main.getCursorWeeklyUsage()` 读取额度，未提供任意脚本或远程地址参数；凭证留在 Grok 内部，不读认证文件。依赖 `/opt/homebrew/bin/node`（支持原生 fetch / WebSocket）。Grok 未运行、接口关闭或版本接口变化时显示不可用，不启动应用或开启调试。
+- 已在 Grok Bot 0.71.2 验证：接口提供 `percentUsed`、`nextResetMs` 和 `grokPlanLabel`。只保存这些数值/显示字段及同步时间，舍弃其他返回字段。页面标明当前登录账号整体范围，可能包含其他项目，不随页面日期范围筛选。
+- 该接口没有 Token 或请求数。底层程序虽定义聚合 Token schema，但现有公开 IPC 的返回值没有暴露这些字段，不能据此声称 Token 已接通。不会把额度百分比换算成 Token，也不会把按需费用为零理解成没有订阅用量。
+- 额度作为 `grokAccount` 单独返回，Grok 行状态为 `quota_only`，Token 列显示空缺。失败保留上次快照并标注过期/可能属于此前账号；首次失败不显示零。多个例行只读一次账户额度。仅关闭本次读取的 WebSocket，保留用户已开放的调试接口，不发送消息、不改变例行启停。
+- 所有源继续至多每分钟读取一次；只要页面关闭且没有其他客户端请求此端点，就不主动刷新。Grok 请求是账户查询，不是模型生成。
+
 验证：
 
 ```sh
 python3 -m unittest discover -s scripts/leeva -p test_external_usage.py -v
 python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
+node --test scripts/leeva/read-grok-usage.test.mjs
 cd ui
 ./node_modules/.bin/vitest run src/components/ExternalUsagePanel.test.tsx src/pages/Costs.test.tsx
 ./node_modules/.bin/tsc -b

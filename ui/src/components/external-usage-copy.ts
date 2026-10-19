@@ -3,7 +3,11 @@ import { i18n } from "../i18n";
 // Separate namespace keeps the small upstream core locale schema unchanged.
 const en = {
   title: "Usage from original apps",
-  description: "Read from mapped Codex conversations and Gemini / Argon. Tasks continue in their original apps.",
+  description: "Read mapped Codex / Argon conversations and Grok account quota. Tasks continue in their original apps.",
+  grokTitle: "Grok account quota", grokUsed: "{{percent}}% used", grokReset: "Resets",
+  quota_only: "Quota connected · Tokens unavailable",
+  grokScope: "Current quota for the entire account signed in to this Mac's Grok Bot, including other projects. Not attributable to this routine, not a Token count or bill, and unaffected by the date filter above. Excluded from Token totals.",
+  grokStale: "Grok is currently unavailable. This is the last successful account reading and may be stale or belong to a previously signed-in account.",
   refresh: "Refresh usage", syncing: "Syncing usage…", loading: "Reading local usage…",
   error: "The local usage connection is unavailable. Existing figures may be stale; retry after the service is restored.",
   empty: "No mapped usage sources in this organization.",
@@ -17,7 +21,11 @@ const en = {
 };
 const zh = {
   title: "原应用用量",
-  description: "读取已映射的 Codex 会话和 Gemini / Argon；任务仍在原应用执行。",
+  description: "读取已映射的 Codex / Argon 会话及 Grok 账户额度；任务仍在原应用执行。",
+  grokTitle: "Grok 账户额度", grokUsed: "已用 {{percent}}%", grokReset: "重置时间",
+  quota_only: "额度已接入 · Token 未提供",
+  grokScope: "这是本机 Grok Bot 登录账号的当前整体额度，包含其他项目；不能归到这条例行，不代表 Token 数或账单，不受上方日期筛选影响，也不计入 Token 合计。",
+  grokStale: "Grok 当前不可用。显示上次成功读取的账户额度，可能已过期或属于此前登录的账号。",
   refresh: "刷新用量", syncing: "正在同步用量…", loading: "正在读取本机用量…",
   error: "本机用量连接暂不可用。已有数字可能过期，请在服务恢复后重试。",
   empty: "当前组织没有已映射的用量来源。",

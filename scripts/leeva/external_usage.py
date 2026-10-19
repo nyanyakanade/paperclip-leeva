@@ -5,9 +5,11 @@ not prompts, tool output, credentials, or inferred dollar amounts.
 """
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -69,13 +71,36 @@ def argon_events(step, conversation):
 
 
 class UsageMirror:
-    def __init__(self, root, sessions=None, client_factory=None):
+    def __init__(self, root, sessions=None, client_factory=None, grok_reader=None):
         self.root = Path(root)
         self.sessions = Path(sessions) if sessions else Path.home() / ".codex" / "sessions"
         self.client_factory = client_factory or self.gemini_client
+        self.grok_reader = grok_reader or self.grok_usage
         self.lock = threading.Lock()
         self.running = set()
         self.last_attempt = {}
+
+    @staticmethod
+    def grok_usage():
+        # Fixed local reader. Credentials stay in Grok Bot, which must already run.
+        reader = Path(__file__).with_name("read-grok-usage.mjs")
+        result = subprocess.run(["/opt/homebrew/bin/node", str(reader)],
+                                capture_output=True, text=True, timeout=30, check=True)
+        return json.loads(result.stdout)
+
+    @staticmethod
+    def grok_quota(value):
+        percent = value["percentUsed"]
+        reset = value["nextResetMs"]
+        for field in (percent, reset):
+            if type(field) not in (float, int) or not math.isfinite(field) or field < 0:
+                raise ValueError("Invalid account quota")
+        if not reset:
+            raise ValueError("Missing quota reset")
+        label = value.get("planLabel")
+        return {"percentUsed": percent,
+                "resetAt": datetime.fromtimestamp(reset / 1000, timezone.utc).isoformat(timespec="milliseconds"),
+                "planLabel": label[:80] if isinstance(label, str) else None}
 
     @staticmethod
     def gemini_client():
@@ -242,6 +267,17 @@ class UsageMirror:
                     db.execute("INSERT INTO status VALUES (?,NULL,?) ON CONFLICT(key) DO UPDATE SET error=excluded.error",
                                (key, type(error).__name__))
                     db.commit()
+            if any((a.get("metadata") or {}).get("externalKind") == "grok_routine" for a in agents):
+                try:
+                    quota = self.grok_quota(self.grok_reader())
+                    self.checkpoint(db, "grok:account", quota)
+                    db.execute("INSERT OR REPLACE INTO status VALUES ('grok:account',?,NULL)", (now(),))
+                    db.commit()
+                except Exception as error:
+                    db.rollback()
+                    db.execute("INSERT INTO status VALUES ('grok:account',NULL,?) ON CONFLICT(key) DO UPDATE SET error=excluded.error",
+                               (type(error).__name__,))
+                    db.commit()
         finally:
             db.close()
 
@@ -266,7 +302,14 @@ class UsageMirror:
             raise ValueError("Invalid date range")
         db = self.database(cid)
         rows, seen = [], set()
+        grok_account = None
         try:
+            if any((a.get("metadata") or {}).get("externalKind") == "grok_routine" for a in agents):
+                state = db.execute("SELECT success,error FROM status WHERE key='grok:account'").fetchone()
+                grok_account = {**self.cursor(db, "grok:account", {}), "scope": "account",
+                                "tokenUsageAvailable": False, "syncedAt": state["success"] if state else None,
+                                "status": "unavailable" if state and state["error"] else
+                                "connected" if state and state["success"] else "pending"}
             for agent in agents:
                 meta = agent.get("metadata") or {}
                 kind, root = meta.get("externalKind"), meta.get("externalId")
@@ -286,9 +329,12 @@ class UsageMirror:
                            "unavailable" if state and state["error"] else "connected" if state and state["success"] else "pending",
                            syncedAt=state["success"] if state else None, costCents=None)
                 row["total"] = sum(row[k] for k in ("fresh", "cached", "written", "output"))
+                if kind == "grok_routine":
+                    row.update(status="quota_only" if grok_account["status"] == "connected" else grok_account["status"],
+                               syncedAt=grok_account["syncedAt"])
                 rows.append(row)
         finally:
             db.close()
         self.start_refresh(cid, agents)
-        return {"rows": rows, "refreshing": cid in self.running, "costCents": None,
+        return {"rows": rows, "refreshing": cid in self.running, "costCents": None, "grokAccount": grok_account,
                 "totals": {k: sum(r[k] for r in rows) for k in ("requests", "fresh", "cached", "written", "output", "total")}}
