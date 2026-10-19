@@ -50,7 +50,7 @@ pnpm --filter @paperclipai/ui exec vite preview --host 127.0.0.1 --port 3101
 
 发布前按上游要求补跑 `pnpm -r typecheck`、`pnpm test:run`、`pnpm build`；记录实际完成范围，不能用界面构建代替全仓测试通过。
 
-审计页现支持读取原应用用量：按当前映射接入 Codex、Argon 与 Claude 会话，分列缓存、输入和输出；Grok 账户额度单独展示，金额未知时明确标注。部署、覆盖范围与校验方法见 [协作与用量接入](doc/leeva/collaboration.md)。
+审计页现支持读取原应用用量：按当前映射接入 Codex、Argon、Claude 与 DeepSeek Harness 会话，分列缓存、输入和输出；Grok 账户额度单独展示，金额未知时明确标注。部署、覆盖范围与校验方法见 [协作与用量接入](doc/leeva/collaboration.md)。
 
 ## 后续维护
 

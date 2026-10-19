@@ -82,7 +82,8 @@ python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
 - Codex：读取当前映射会话和明确 `subagent` 后代的本机 `token_usage_record`，按 response ID 去重，跳过继承记录、普通分叉和系统审批；直接映射的子会话单独归属。只保存用量、时间、模型与来源标识，不保存正文。
 - Argon：复用相邻 `../gemini-api-bridge/gemini_api.py` 的受限只读接口，读取映射会话主轨迹的步骤用量和重试记录。只收终态记录；response ID 优先、message ID 兜底去重，不把同一次请求的重试元数据再加一次。新步骤、最近 50 步和未结束步骤增量回读。子轨迹不在范围内。
 - Claude：`externalKind=claude_session`，`externalId` 为完整会话 UUID，精确匹配 `~/.claude/projects/*/<UUID>.jsonl`，不将跨会话消息短 ref 当作日志 ID。只读映射会话的主日志中 `sessionId` 一致、非 sidechain、有 `stop_reason` 的 assistant 用量，以 message ID 去重，重复的内容块不重复计数；未知 ID / synthetic 的零用量占位记录排除。子智能体日志不在本轮范围，日志缺失/多份歧义/矛盾计数显示来源异常。增量位置保留完整换行边界。无需启动 Claude、发送消息或迁移登录。
-- 输入口径归一：Codex input 包含缓存，Argon / Claude input 不含缓存；界面分别列非缓存输入、缓存读取、缓存写入、输出。Claude 缓存写入使用顶层 `cache_creation_input_tokens`，不再叠加 TTL 明细；推理输出已经包含在输出内，不额外相加。相同身份出现矛盾计数时回滚该来源本轮同步，显示来源异常。
+- DeepSeek Harness（2026-10-20）：`externalKind=deepseek_harness_session`，严格验证 `externalId=session-<UUID>`，只读 `~/.dsh/sessions/*/<session-id>/session.v4.jsonl.zstd`。使用本机 `zstd` CLI（PATH 或 `/opt/homebrew/bin/zstd`）解压全部追加帧；Node 单次解压只得到首帧，不能用于此日志。核验 v4 头、会话 ID、非继承日志和连续事件序号，按会话 ID 加事件 seq 去重，统计 `assistant/message` 和 `compaction/summary` 的顶层实测 usage，忽略流内重复副本。只保存数值、模型、时间和去重键；读取不需要认证、RPC、唤醒或模型调用。旧会话、子会话、继承日志及没有报告 usage 的失败、标题或搜索请求不补估，日志用量不代表全账户账单。文件未变不重解压；变更时核对快照并重读去重。正在追加造成的不完整压缩帧、未知格式、身份歧义或计数冲突，回滚本次并保留上次数据，下一次刷新重试，不修改源日志。
+- 输入口径归一：Codex input 包含缓存，Argon / Claude / DeepSeek Harness input 不含缓存；界面分别列非缓存输入、缓存读取、缓存写入、输出。Claude 缓存写入使用顶层 `cache_creation_input_tokens`，不再叠加 TTL 明细；推理输出已经包含在输出内，不额外相加。相同身份出现矛盾计数时回滚该来源本轮同步，显示来源异常。
 - SQLite 缓存存于 `~/.paperclip/leeva/usage/<company-id>.sqlite3`，目录 0700、数据文件 0600，包含记录去重键、增量位置和最近成功时间，不进入 Git。刷新失败保留上次成功记录；无来源、缺日志和重复映射明确显示，不以零代表未取得。
 - 打开费用页时至多每分钟同步一次；首次同步在后台进行，界面短轮询缓存直到完成。关闭页面后不持续轮询。该同步只读已有记录，不调用模型、不派任务、不恢复 Grok、不改变原应用执行方式。
 - 日期筛选作用于记录时间，所选时段无记录与来源未接入分别显示。金额为 null：订阅账单、积分、逐任务派工/验收/执行成本尚未接入。原生 Paperclip 费用账本不包含这些外部记录，不能把下方 `$0` 当作外部费用。

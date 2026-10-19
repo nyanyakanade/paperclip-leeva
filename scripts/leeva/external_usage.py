@@ -15,6 +15,10 @@ import time
 from datetime import datetime, timezone
 import uuid
 from task_usage import task_summary
+from deepseek_usage import read_usage as read_deepseek_usage, session_id as deepseek_session_id
+
+PROVIDERS = {"codex_thread": "codex", "argon": "argon", "claude_session": "claude",
+             "deepseek_harness_session": "deepseek"}
 
 
 def timestamp(value):
@@ -92,12 +96,14 @@ def claude_event(record, root):
 
 
 class UsageMirror:
-    def __init__(self, root, sessions=None, client_factory=None, grok_reader=None, claude_projects=None):
+    def __init__(self, root, sessions=None, client_factory=None, grok_reader=None, claude_projects=None,
+                 deepseek_sessions=None):
         self.root = Path(root)
         self.sessions = Path(sessions) if sessions else Path.home() / ".codex" / "sessions"
         self.client_factory = client_factory or self.gemini_client
         self.grok_reader = grok_reader or self.grok_usage
         self.claude_projects = Path(claude_projects) if claude_projects else Path.home() / ".claude" / "projects"
+        self.deepseek_sessions = Path(deepseek_sessions) if deepseek_sessions else Path.home() / ".dsh" / "sessions"
         self.lock = threading.Lock()
         self.running = set()
         self.last_attempt = {}
@@ -284,6 +290,13 @@ class UsageMirror:
                     self.insert(db, "claude", root, event)
         self.checkpoint(db, key, {"offset": offset, "inode": stat.st_ino})
 
+    def deepseek(self, db, root):
+        key = "deepseek:" + root
+        events, stamp = read_deepseek_usage(self.deepseek_sessions, root, self.cursor(db, key, None))
+        for event in events:
+            self.insert(db, "deepseek", root, event)
+        self.checkpoint(db, key, stamp)
+
     def refresh(self, cid, agents):
         db = self.database(cid)
         inventory = None
@@ -294,20 +307,25 @@ class UsageMirror:
             for agent in agents:
                 meta = agent.get("metadata") or {}
                 kind, root = meta.get("externalKind"), meta.get("externalId")
-                if kind not in {"codex_thread", "argon", "claude_session"} or not root or (kind, root) in seen:
+                if kind not in PROVIDERS or not root or (kind, root) in seen:
                     continue
                 seen.add((kind, root))
                 key = kind + ":" + root
                 try:
-                    uuid.UUID(root)
+                    if kind == "deepseek_harness_session":
+                        deepseek_session_id(root)
+                    else:
+                        uuid.UUID(root)
                     if kind == "codex_thread":
                         if inventory is None:
                             inventory = self.inventory()
                         self.codex(db, root, inventory, roots)
                     elif kind == "argon":
                         self.argon(db, root)
-                    else:
+                    elif kind == "claude_session":
                         self.claude(db, root)
+                    else:
+                        self.deepseek(db, root)
                     db.execute("INSERT OR REPLACE INTO status VALUES (?,?,NULL)", (key, now()))
                     db.commit()
                 except Exception as error:
@@ -363,10 +381,10 @@ class UsageMirror:
             for agent in agents:
                 meta = agent.get("metadata") or {}
                 kind, root = meta.get("externalKind"), meta.get("externalId")
-                supported = kind in {"codex_thread", "argon", "claude_session"} and bool(root)
+                supported = kind in PROVIDERS and bool(root)
                 duplicate = supported and (kind, root) in seen
                 seen.add((kind, root))
-                provider = {"codex_thread": "codex", "claude_session": "claude"}.get(kind, "argon")
+                provider = PROVIDERS.get(kind)
                 result = db.execute("""SELECT count(*) AS requests, coalesce(sum(fresh),0) AS fresh,
                   coalesce(sum(cached),0) AS cached, coalesce(sum(written),0) AS written,
                   coalesce(sum(output),0) AS output, min(occurred) AS firstEvent, max(occurred) AS lastEvent
