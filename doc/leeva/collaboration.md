@@ -63,6 +63,20 @@ python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
 
 ## 原应用用量接入（2026-10-19）
 
+### 逐任务抽样核算
+
+同一只读 API 的 `taskAudit` 从 `~/.paperclip/leeva/usage/<companyId>.tasks.json` 读取经过证据核对的版本 1 快照。它是独立样本账，不增加 live `events` 或 Paperclip 费用账本。历史旧主控可在有来源证据时纳入样本，不能冒充当前映射会话的全部用量。公司文件名和文件内 `companyId` 必须一致；无快照显示 missing，损坏、重复响应、负数或无效关联显示 invalid，不静默给零。
+
+快照结构：`version`, `companyId`, `generatedAt`, `scope`, `tasks`, `events`, `evidence`。任务包含 `id/name/executor/outcome/complete/basis`；事件包含 `provider/identity/occurred/model/taskId/phase/fresh/cached/written/output`。`phase` 为 dispatch、review、coordination、mixed、execution、rework 之一。无法独立归属的事件使用 `taskId: null`，附 `relatedTaskIds` 和 `reason`。每个 `(provider, identity)` 在整份快照只能出现一次；推理输出已经包含在 output 中。
+
+只以明确派单边界、回执、验收记录和实际 turn/response ID 建立映射，不按字数、平均值或耗时拆混合回合。返修和中断续做保留为 rework。跨任务回合、一时的接入配置与首次派单前用量进入公共池；相关任务只展示公共回合涉及量，绝不把它重复加到各任务合计。Token 计数是实测，任务归属是有依据的人工核对，不声称精确因果成本。
+
+日期过滤按每笔响应时间执行，并在截断任务时标注 partialRange。执行者筛选只改变任务列表，公共池和汇总明确属于整个日期窗口。默认展示非缓存输入加输出，同时可切总量或请求数，并展开四类 Token。生命周期未完整、未验收和否定研究结论都必须保留。界面不推算账单，不给最优拆分阈值；没有同质量单代理基线时不能声称省钱。
+
+刷新仅重读已有归属快照，不用模型自动猜新任务归属。补充样本时先生成新文件并运行 `task_usage.aggregate` 校验，再以私有权限原子替换；实际日志、快照、任务 ID 与报告保持在本机，不提交 Git。测试：`python3 -m unittest discover -s scripts/leeva -p test_task_usage.py -v`、UI `TaskUsageComparison.test.tsx`。
+
+复用调研：检查过 [Langfuse 的 usage/cost 追踪](https://github.com/langfuse/langfuse-docs/blob/main/content/docs/observability/features/token-and-cost-tracking.mdx) 与 [trace 关联属性](https://langfuse.com/docs/observability/best-practices)。外部工具仍需真实 task/response 关联，无法补造旧日志缺失的阶段边界；本次复用现有本机读取与展示，无新增依赖、云端日志或模型调用。
+
 审计 → 费用顶部的“原应用用量”从同一本机服务读取 `GET /api/companies/:companyId/external-usage?from=ISO&to=ISO`。公司 ID 先向 Paperclip 校验，再按智能体 `metadata.externalKind/externalId` 选择会话 Token 来源。Grok 仅有账户额度，作为独立快照展示，不计入项目 Token 合计。该接口只读，沿用 loopback、Host 和 Origin 限制，不适用于远程、多租户部署。
 
 - Codex：读取当前映射会话和明确 `subagent` 后代的本机 `token_usage_record`，按 response ID 去重，跳过继承记录、普通分叉和系统审批；直接映射的子会话单独归属。只保存用量、时间、模型与来源标识，不保存正文。

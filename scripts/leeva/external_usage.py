@@ -14,6 +14,7 @@ import threading
 import time
 from datetime import datetime, timezone
 import uuid
+from task_usage import task_summary
 
 
 def timestamp(value):
@@ -394,5 +395,6 @@ class UsageMirror:
             db.close()
         self.start_refresh(cid, agents)
         return {"rows": rows, "refreshing": cid in self.running, "costCents": None, "grokAccount": grok_account,
+                "taskAudit": task_summary(self.root, cid, lower, upper),
                 "daily": daily, "dayTimezone": "Asia/Shanghai",
                 "totals": {k: sum(r[k] for r in rows) for k in ("requests", "fresh", "cached", "written", "output", "total")}}

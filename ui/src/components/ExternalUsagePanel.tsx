@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import "./external-usage-copy";
 import { ExternalUsageCharts } from "./ExternalUsageCharts";
+import { TaskUsageComparison } from "./TaskUsageComparison";
 
 export function ExternalUsagePanel({ companyId, from, to, enabled = true }: {
   companyId: string; from?: string; to?: string; enabled?: boolean;
@@ -46,6 +47,7 @@ export function ExternalUsagePanel({ companyId, from, to, enabled = true }: {
             ))}
           </div>
           <p className="text-sm">{t("money")}</p>
+          <TaskUsageComparison audit={data.taskAudit} />
           <ExternalUsageCharts data={data} />
           {data.grokAccount && <section aria-label={t("grokTitle")} className="space-y-2 rounded-lg border p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">

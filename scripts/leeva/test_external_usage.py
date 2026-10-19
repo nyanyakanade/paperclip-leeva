@@ -80,6 +80,17 @@ class UsageTest(unittest.TestCase):
     def summary(self, agents=None, **kwargs):
         return self.mirror.summary(CID, agents or [agent()], **kwargs)
 
+    def test_task_samples_are_separate_from_live_totals_and_follow_date_scope(self):
+        from test_task_usage import sample
+        self.log()
+        self.mirror.refresh(CID, [agent()])
+        snapshot = sample()
+        (self.base / "usage" / (CID + ".tasks.json")).write_text(json.dumps(snapshot))
+        result = self.summary(begin="2026-10-19T00:00:00Z")
+        self.assertEqual(result["totals"]["total"], 110)
+        self.assertEqual(result["taskAudit"]["totals"]["total"], 345)
+        self.assertTrue(result["taskAudit"]["rows"][0]["partialRange"])
+
     def claude_log(self, records, project="test-project"):
         path = self.mirror.claude_projects / project / (ROOT + ".jsonl")
         path.parent.mkdir(parents=True, exist_ok=True)

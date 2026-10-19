@@ -17,6 +17,7 @@ export interface ExternalUsageRow extends UsageTotals {
   costCents: null;
 }
 export interface ExternalUsage {
+  taskAudit?: TaskUsageAudit;
   rows: ExternalUsageRow[];
   totals: UsageTotals;
   refreshing: boolean;
@@ -33,6 +34,21 @@ export interface ExternalUsage {
     syncedAt: string | null;
   } | null;
 }
+
+export type TaskUsagePhase = "dispatch" | "review" | "coordination" | "mixed" | "execution" | "rework";
+export interface TaskUsageRow {
+  id: string; name: string; executor: string; outcome: string; complete: boolean; basis: string;
+  phases: Record<TaskUsagePhase, UsageTotals>;
+  totals: UsageTotals; shared: UsageTotals; partialRange: boolean; models: string[];
+  firstEvent: string | null; lastEvent: string | null;
+}
+export type TaskUsageAudit = { status: "missing" | "invalid" } | {
+  status: "ready"; generatedAt: string; scope: string; rows: TaskUsageRow[];
+  totals: UsageTotals; assigned: UsageTotals; shared: UsageTotals;
+  pools: { reason: string; relatedTaskIds: string[]; totals: UsageTotals }[];
+  evidence: { label: string; sha256: string }[];
+  costCents: null; singleAgentBaselineAvailable: false;
+};
 
 export const externalUsageApi = {
   async get(companyId: string, from?: string, to?: string): Promise<ExternalUsage> {
