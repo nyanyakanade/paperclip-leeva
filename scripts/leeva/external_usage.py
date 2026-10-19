@@ -70,12 +70,33 @@ def argon_events(step, conversation):
                number(u.get("cacheWriteTokens")), number(u.get("outputTokens")))
 
 
+def claude_event(record, root):
+    if record.get("type") != "assistant" or record.get("sessionId") != root or record.get("isSidechain"):
+        return None
+    message = record.get("message") or {}
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    counts = [number(usage.get(k)) for k in
+              ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")]
+    identity, model = message.get("id"), message.get("model")
+    if not identity or identity == "msg_unknown" or not model or model == "<synthetic>":
+        if any(counts):
+            raise ValueError("Unidentified Claude usage")
+        return None  # Local placeholders/errors are not model requests.
+    if not message.get("stop_reason"):
+        return None  # Wait for a completed response record, not streaming usage.
+    # Anthropic input excludes both cache categories. Thinking is already in output.
+    return (identity, root, model, timestamp(record["timestamp"]), *counts)
+
+
 class UsageMirror:
-    def __init__(self, root, sessions=None, client_factory=None, grok_reader=None):
+    def __init__(self, root, sessions=None, client_factory=None, grok_reader=None, claude_projects=None):
         self.root = Path(root)
         self.sessions = Path(sessions) if sessions else Path.home() / ".codex" / "sessions"
         self.client_factory = client_factory or self.gemini_client
         self.grok_reader = grok_reader or self.grok_usage
+        self.claude_projects = Path(claude_projects) if claude_projects else Path.home() / ".claude" / "projects"
         self.lock = threading.Lock()
         self.running = set()
         self.last_attempt = {}
@@ -237,6 +258,31 @@ class UsageMirror:
                     self.insert(db, "argon", root, event)
         self.checkpoint(db, key, {"next": total, "pending": sorted(pending)})
 
+    def claude(self, db, root):
+        # Exact mapped session only, never history.jsonl, credentials or subagent logs.
+        paths = list(self.claude_projects.glob("*/" + root + ".jsonl"))
+        if len(paths) != 1:
+            raise ValueError("Claude session missing or ambiguous")
+        path = paths[0]
+        key = "claude:" + root + ":" + str(path)
+        old = self.cursor(db, key, {"offset": 0})
+        stat = path.stat()
+        offset = old["offset"] if stat.st_size >= old["offset"] and old.get("inode", stat.st_ino) == stat.st_ino else 0
+        with path.open("rb") as stream:
+            stream.seek(offset)
+            while True:
+                start = stream.tell()
+                line = stream.readline()
+                if not line or not line.endswith(b"\n"):
+                    offset = start
+                    break
+                if b'"assistant"' not in line:
+                    continue
+                event = claude_event(json.loads(line), root)
+                if event:
+                    self.insert(db, "claude", root, event)
+        self.checkpoint(db, key, {"offset": offset, "inode": stat.st_ino})
+
     def refresh(self, cid, agents):
         db = self.database(cid)
         inventory = None
@@ -247,7 +293,7 @@ class UsageMirror:
             for agent in agents:
                 meta = agent.get("metadata") or {}
                 kind, root = meta.get("externalKind"), meta.get("externalId")
-                if kind not in {"codex_thread", "argon"} or not root or (kind, root) in seen:
+                if kind not in {"codex_thread", "argon", "claude_session"} or not root or (kind, root) in seen:
                     continue
                 seen.add((kind, root))
                 key = kind + ":" + root
@@ -257,8 +303,10 @@ class UsageMirror:
                         if inventory is None:
                             inventory = self.inventory()
                         self.codex(db, root, inventory, roots)
-                    else:
+                    elif kind == "argon":
                         self.argon(db, root)
+                    else:
+                        self.claude(db, root)
                     db.execute("INSERT OR REPLACE INTO status VALUES (?,?,NULL)", (key, now()))
                     db.commit()
                 except Exception as error:
@@ -313,10 +361,10 @@ class UsageMirror:
             for agent in agents:
                 meta = agent.get("metadata") or {}
                 kind, root = meta.get("externalKind"), meta.get("externalId")
-                supported = kind in {"codex_thread", "argon"} and bool(root)
+                supported = kind in {"codex_thread", "argon", "claude_session"} and bool(root)
                 duplicate = supported and (kind, root) in seen
                 seen.add((kind, root))
-                provider = "codex" if kind == "codex_thread" else "argon"
+                provider = {"codex_thread": "codex", "claude_session": "claude"}.get(kind, "argon")
                 result = db.execute("""SELECT count(*) AS requests, coalesce(sum(fresh),0) AS fresh,
                   coalesce(sum(cached),0) AS cached, coalesce(sum(written),0) AS written,
                   coalesce(sum(output),0) AS output, min(occurred) AS firstEvent, max(occurred) AS lastEvent

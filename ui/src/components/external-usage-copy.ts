@@ -3,7 +3,7 @@ import { i18n } from "../i18n";
 // Separate namespace keeps the small upstream core locale schema unchanged.
 const en = {
   title: "Usage from original apps",
-  description: "Read mapped Codex / Argon conversations and Grok account quota. Tasks continue in their original apps.",
+  description: "Read mapped Codex / Argon / Claude conversations and Grok account quota. Tasks continue in their original apps.",
   grokTitle: "Grok account quota", grokUsed: "{{percent}}% used", grokReset: "Resets",
   quota_only: "Quota connected · Tokens unavailable",
   grokScope: "Current quota for the entire account signed in to this Mac's Grok Bot, including other projects. Not attributable to this routine, not a Token count or bill, and unaffected by the date filter above. Excluded from Token totals.",
@@ -14,14 +14,14 @@ const en = {
   total: "Recorded tokens", fresh: "Uncached input", cached: "Cache read", written: "Cache write", output: "Output",
   agent: "Agent", state: "Connection", requests: "Requests", last: "Last usage", synced: "Last sync",
   money: "Actual charges: unavailable. Token totals are not a bill; the Paperclip ledger below excludes this external usage.",
-  scope: "Scope: currently mapped conversations and Codex subagents. Guardian approvals, unmapped conversations and Argon subagent trajectories are excluded. Missing sources are not zero usage. Dispatch, review and execution have not yet been separated per task.",
+  scope: "Scope: currently mapped conversations and Codex subagents. Guardian approvals, unmapped conversations and Argon / Claude subagent logs are excluded. Claude counts completed responses once per message ID and excludes local placeholders. Missing sources are not zero usage. Dispatch, review and execution have not yet been separated per task.",
   connected: "Connected", pending: "Waiting for first sync", unsupported: "Not connected", unavailable: "Source unavailable · saved data", duplicate_mapping: "Duplicate mapping · excluded",
   none: "No records in range", first: "First usage in range",
   saved: "Showing saved counts. Sources refresh while this page is open, at most once per minute.",
 };
 const zh = {
   title: "原应用用量",
-  description: "读取已映射的 Codex / Argon 会话及 Grok 账户额度；任务仍在原应用执行。",
+  description: "读取已映射的 Codex / Argon / Claude 会话及 Grok 账户额度；任务仍在原应用执行。",
   grokTitle: "Grok 账户额度", grokUsed: "已用 {{percent}}%", grokReset: "重置时间",
   quota_only: "额度已接入 · Token 未提供",
   grokScope: "这是本机 Grok Bot 登录账号的当前整体额度，包含其他项目；不能归到这条例行，不代表 Token 数或账单，不受上方日期筛选影响，也不计入 Token 合计。",
@@ -32,7 +32,7 @@ const zh = {
   total: "已记录 Token", fresh: "非缓存输入", cached: "缓存读取", written: "缓存写入", output: "输出",
   agent: "智能体", state: "连接状态", requests: "请求数", last: "最近一笔", synced: "最近同步",
   money: "实际费用：未取得。Token 总量不等于账单金额；下方 Paperclip 账本不包含这些外部用量。",
-  scope: "范围：当前映射的会话及 Codex 子智能体。不含系统审批、未映射会话和 Argon 子轨迹。未接入不代表零消耗；派工、验收、执行还未逐任务拆分。",
+  scope: "范围：当前映射的会话及 Codex 子智能体。不含系统审批、未映射会话和 Argon / Claude 子轨迹。Claude 只计完整回复，同一消息 ID 只算一次，排除本地占位记录。未接入不代表零消耗；派工、验收、执行还未逐任务拆分。",
   connected: "已接通", pending: "等待首次同步", unsupported: "未接入", unavailable: "来源不可用 · 保留历史", duplicate_mapping: "重复映射 · 已排除",
   none: "所选时段无记录", first: "时段内首笔",
   saved: "显示已保存的记录；打开此页时每分钟读取一次原应用，刷新不会调用模型。",

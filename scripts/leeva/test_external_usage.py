@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from external_usage import UsageMirror, argon_events, codex_event, timestamp
+from external_usage import UsageMirror, argon_events, claude_event, codex_event, timestamp
 
 CID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 ROOT = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -30,6 +30,13 @@ def step(identity="response", status="CORTEX_STEP_STATUS_DONE"):
                  thinkingOutputTokens=7, responseOutputTokens=3, model="provider-reported-model")
     return dict(status=status, metadata=dict(createdAt=TS, modelUsage=usage,
                                             retryInfos=[dict(usage=usage)]))
+
+
+def claude_record(identity="message", owner=ROOT, **extra):
+    return dict(type="assistant", sessionId=owner, timestamp=TS, message=dict(
+        id=identity, model="test-claude", stop_reason="tool_use", usage=dict(input_tokens=20,
+        cache_read_input_tokens=80, cache_creation_input_tokens=5, output_tokens=10,
+        cache_creation={"ephemeral_1h_input_tokens": 5}, output_tokens_details={"thinking_tokens": 7})), **extra)
 
 
 class FakeGemini:
@@ -58,6 +65,7 @@ class UsageTest(unittest.TestCase):
         self.fake = FakeGemini()
         self.mirror = UsageMirror(self.base / "usage", self.sessions, lambda: self.fake)
         self.mirror.start_refresh = lambda *_args: None
+        self.mirror.claude_projects = self.base / "claude-projects"
 
     def tearDown(self):
         self.temp.cleanup()
@@ -71,6 +79,77 @@ class UsageTest(unittest.TestCase):
 
     def summary(self, agents=None, **kwargs):
         return self.mirror.summary(CID, agents or [agent()], **kwargs)
+
+    def claude_log(self, records, project="test-project"):
+        path = self.mirror.claude_projects / project / (ROOT + ".jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(r) + "\n" for r in records))
+        return path
+
+    def test_claude_message_parts_count_once_and_cache_and_thinking_are_not_added_twice(self):
+        self.claude_log([claude_record(), claude_record(), claude_record("second")])
+        agents = [agent(kind="claude_session"), agent(kind="claude_session", identifier="duplicate")]
+        self.mirror.refresh(CID, agents)
+        self.mirror.refresh(CID, agents)
+        result = self.summary(agents)
+        self.assertEqual(result["rows"][0]["provider"], "claude")
+        self.assertEqual(result["totals"], dict(requests=2, fresh=40, cached=160, written=10, output=20, total=230))
+        self.assertEqual(result["rows"][1]["status"], "duplicate_mapping")
+        self.assertIsNone(result["rows"][0]["costCents"])
+        self.assertEqual(self.summary(agents, begin="2026-10-20T00:00:00Z")["totals"]["total"], 0)
+
+    def test_claude_excludes_inherited_sidechain_placeholder_and_streaming_usage(self):
+        placeholder = claude_record("msg_unknown")
+        placeholder["message"].update(model="", usage={})
+        synthetic = claude_record("local")
+        synthetic["message"].update(model="<synthetic>", usage={})
+        partial = claude_record("stream")
+        partial["message"].update(stop_reason=None)
+        self.claude_log([claude_record(), claude_record("other", CHILD), claude_record("child", isSidechain=True),
+                         placeholder, synthetic, partial])
+        agents = [agent(kind="claude_session")]
+        self.mirror.refresh(CID, agents)
+        self.assertEqual(self.summary(agents)["totals"]["requests"], 1)
+        with self.assertRaises(ValueError):
+            claude_event(claude_record("msg_unknown"), ROOT)
+
+    def test_claude_partial_tail_completed_response_and_rehydrated_file_are_deduplicated(self):
+        path = self.claude_log([claude_record()])
+        agents = [agent(kind="claude_session")]
+        self.mirror.refresh(CID, agents)
+        encoded = json.dumps(claude_record("next")) + "\n"
+        with path.open("a") as f:
+            f.write(encoded[:30])
+        self.mirror.refresh(CID, agents)
+        self.assertEqual(self.summary(agents)["totals"]["requests"], 1)
+        with path.open("a") as f:
+            f.write(encoded[30:])
+        self.mirror.refresh(CID, agents)
+        self.assertEqual(self.summary(agents)["totals"]["requests"], 2)
+        self.claude_log([claude_record("next")])  # Rotation/truncation is reread, not summed again.
+        self.mirror.refresh(CID, agents)
+        self.assertEqual(self.summary(agents)["totals"]["requests"], 2)
+
+    def test_claude_conflicting_usage_and_ambiguous_files_keep_last_good_counts(self):
+        agents = [agent(kind="claude_session")]
+        path = self.claude_log([claude_record()])
+        self.mirror.refresh(CID, agents)
+        bad = claude_record()
+        bad["message"]["usage"]["output_tokens"] = 50
+        with path.open("a") as f:
+            f.write(json.dumps(bad) + "\n")
+        self.mirror.refresh(CID, agents)
+        self.assertEqual(self.summary(agents)["rows"][0]["status"], "unavailable")
+        self.assertEqual(self.summary(agents)["totals"]["total"], 115)
+        self.claude_log([claude_record()], project="copy")
+        self.mirror.refresh(CID, agents)
+        self.assertEqual(self.summary(agents)["rows"][0]["status"], "unavailable")
+
+    def test_claude_missing_file_does_not_report_connected_zero(self):
+        agents = [agent(kind="claude_session")]
+        self.mirror.refresh(CID, agents)
+        self.assertEqual(self.summary(agents)["rows"][0]["status"], "unavailable")
+        self.assertIsNone(self.summary(agents)["rows"][0]["syncedAt"])
 
     def test_cache_and_reasoning_are_not_double_counted(self):
         c = codex_event(record(), meta(), "test")
