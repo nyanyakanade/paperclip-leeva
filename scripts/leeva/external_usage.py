@@ -349,9 +349,10 @@ class UsageMirror:
         if lower > upper:
             raise ValueError("Invalid date range")
         db = self.database(cid)
-        rows, seen = [], set()
+        rows, daily, seen = [], [], set()
         grok_account = None
         try:
+            db.execute("BEGIN")  # Tables and charts use one snapshot during background sync.
             if any((a.get("metadata") or {}).get("externalKind") == "grok_routine" for a in agents):
                 state = db.execute("SELECT success,error FROM status WHERE key='grok:account'").fetchone()
                 grok_account = {**self.cursor(db, "grok:account", {}), "scope": "account",
@@ -381,8 +382,17 @@ class UsageMirror:
                     row.update(status="quota_only" if grok_account["status"] == "connected" else grok_account["status"],
                                syncedAt=grok_account["syncedAt"])
                 rows.append(row)
+                if supported and not duplicate:
+                    days = db.execute("""SELECT strftime('%Y-%m-%d',occurred,'+8 hours') AS date,
+                      count(*) AS requests, sum(fresh) AS fresh, sum(cached) AS cached,
+                      sum(written) AS written, sum(output) AS output,
+                      sum(fresh+cached+written+output) AS total
+                      FROM events WHERE provider=? AND root=? AND occurred>=? AND occurred<=?
+                      GROUP BY date ORDER BY date""", (provider, root, lower, upper))
+                    daily.extend({**dict(day), "agentId": agent["id"]} for day in days)
         finally:
             db.close()
         self.start_refresh(cid, agents)
         return {"rows": rows, "refreshing": cid in self.running, "costCents": None, "grokAccount": grok_account,
+                "daily": daily, "dayTimezone": "Asia/Shanghai",
                 "totals": {k: sum(r[k] for r in rows) for k in ("requests", "fresh", "cached", "written", "output", "total")}}

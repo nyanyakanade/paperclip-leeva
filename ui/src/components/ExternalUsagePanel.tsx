@@ -4,6 +4,7 @@ import { useTranslation } from "../i18n";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import "./external-usage-copy";
+import { ExternalUsageCharts } from "./ExternalUsageCharts";
 
 export function ExternalUsagePanel({ companyId, from, to, enabled = true }: {
   companyId: string; from?: string; to?: string; enabled?: boolean;
@@ -45,6 +46,7 @@ export function ExternalUsagePanel({ companyId, from, to, enabled = true }: {
             ))}
           </div>
           <p className="text-sm">{t("money")}</p>
+          <ExternalUsageCharts data={data} />
           {data.grokAccount && <section aria-label={t("grokTitle")} className="space-y-2 rounded-lg border p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium">{t("grokTitle")}{data.grokAccount.planLabel ? ` · ${data.grokAccount.planLabel}` : ""}</h3>

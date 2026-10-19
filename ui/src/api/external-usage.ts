@@ -21,6 +21,8 @@ export interface ExternalUsage {
   totals: UsageTotals;
   refreshing: boolean;
   costCents: null;
+  daily?: (UsageTotals & { date: string; agentId: string })[];
+  dayTimezone?: "Asia/Shanghai";
   grokAccount?: {
     status: "connected" | "pending" | "unavailable";
     scope: "account";

@@ -72,6 +72,7 @@ python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
 - SQLite 缓存存于 `~/.paperclip/leeva/usage/<company-id>.sqlite3`，目录 0700、数据文件 0600，包含记录去重键、增量位置和最近成功时间，不进入 Git。刷新失败保留上次成功记录；无来源、缺日志和重复映射明确显示，不以零代表未取得。
 - 打开费用页时至多每分钟同步一次；首次同步在后台进行，界面短轮询缓存直到完成。关闭页面后不持续轮询。该同步只读已有记录，不调用模型、不派任务、不恢复 Grok、不改变原应用执行方式。
 - 日期筛选作用于记录时间，所选时段无记录与来源未接入分别显示。金额为 null：订阅账单、积分、逐任务派工/验收/执行成本尚未接入。原生 Paperclip 费用账本不包含这些外部记录，不能把下方 `$0` 当作外部费用。
+- 用量图表：每日堆叠柱图、智能体横向对比、Token 构成环图，均跟随同一日期范围。图表内可选择单个智能体，并切换总 Token、非缓存输入加输出、请求数；构成图始终显示四类 Token 的比例。后端 `daily` 按北京时间（`dayTimezone=Asia/Shanghai`）逐日、逐智能体聚合，与表格使用同一 SQLite 读取快照和去重范围；前端只在首尾有记录日期之间补空白日。无记录不等于无消耗，来源失败显示保留历史提示。Grok 账户额度、未取得和重复映射的 Token 均不参与图表；Token 占比不等于费用占比。图表复用现有 ChartCard 与 CSS/SVG，不添加图表依赖或模型调用。
 
 部署时重新构建并通过 `deploy-ui.mjs` 部署 UI，重启既有 `com.leeva.paperclip-rules` 服务以加载新的只读端点。无数据库迁移；不需要重启 Codex、Gemini、Grok 或 Paperclip 主服务。
 
@@ -90,7 +91,7 @@ python3 -m unittest discover -s scripts/leeva -p test_external_usage.py -v
 python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
 node --test scripts/leeva/read-grok-usage.test.mjs
 cd ui
-./node_modules/.bin/vitest run src/components/ExternalUsagePanel.test.tsx src/pages/Costs.test.tsx
+./node_modules/.bin/vitest run src/components/ExternalUsageCharts.test.tsx src/components/ExternalUsagePanel.test.tsx src/pages/Costs.test.tsx
 ./node_modules/.bin/tsc -b
 ./node_modules/.bin/vite build
 ```

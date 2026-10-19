@@ -2,6 +2,12 @@ import { i18n } from "../i18n";
 
 // Separate namespace keeps the small upstream core locale schema unchanged.
 const en = {
+  charts: "Usage charts", chartAgent: "Chart agent", allAgents: "All agents", chartMetric: "Chart metric",
+  uncached: "Uncached input + output", dailyTitle: "Daily usage", dailyNote: "Asia/Shanghai · hover, tap or focus a bar for details",
+  agentTitle: "Usage by agent", compositionTitle: "Token composition", compositionNote: "Always shows all four Token categories for the selected agents",
+  cacheShareShort: "Cache read share", cacheShare: "Cache read: {{percent}} of all recorded tokens",
+  chartEmpty: "No recorded usage in this selection.", chartStale: "Some sources are unavailable. Charts include their last saved records.",
+  chartScope: "Charts follow the date filter and use recorded usage only; empty days do not prove zero consumption. Token share is not cost share. Grok quota and unavailable Token sources are excluded.",
   title: "Usage from original apps",
   description: "Read mapped Codex / Argon / Claude conversations and Grok account quota. Tasks continue in their original apps.",
   grokTitle: "Grok account quota", grokUsed: "{{percent}}% used", grokReset: "Resets",
@@ -20,6 +26,12 @@ const en = {
   saved: "Showing saved counts. Sources refresh while this page is open, at most once per minute.",
 };
 const zh = {
+  charts: "用量图表", chartAgent: "图表智能体", allAgents: "全部智能体", chartMetric: "图表指标",
+  uncached: "非缓存输入 + 输出", dailyTitle: "每日用量趋势", dailyNote: "按北京时间 · 悬停、点击或键盘选中柱子查看明细",
+  agentTitle: "智能体用量对比", compositionTitle: "Token 构成", compositionNote: "始终展示所选智能体的四类 Token 构成",
+  cacheShareShort: "缓存读取占比", cacheShare: "缓存读取占全部已记录 Token 的 {{percent}}",
+  chartEmpty: "所选范围暂无已记录用量。", chartStale: "部分来源暂不可用，图表包含其上次保存的记录。",
+  chartScope: "图表跟随日期筛选，仅反映已记录用量；空白日期不代表没有消耗。Token 占比不等于费用占比；Grok 额度和未取得的 Token 不参与统计。",
   title: "原应用用量",
   description: "读取已映射的 Codex / Argon / Claude 会话及 Grok 账户额度；任务仍在原应用执行。",
   grokTitle: "Grok 账户额度", grokUsed: "已用 {{percent}}%", grokReset: "重置时间",

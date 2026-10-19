@@ -210,6 +210,27 @@ class UsageTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.mirror.database("../../outside")
 
+    def test_daily_charts_match_totals_and_use_shanghai_midnight_without_duplicates(self):
+        before, after = record("before"), record("after")
+        before["timestamp"] = "2026-10-18T15:59:59.999Z"
+        after["timestamp"] = "2026-10-18T16:00:00Z"
+        self.log(records=[before, after])
+        self.claude_log([claude_record()])
+        agents = [agent(), agent(kind="claude_session", identifier="claude"), agent(identifier="duplicate")]
+        self.mirror.refresh(CID, agents)
+        result = self.summary(agents)
+        self.assertEqual(result["dayTimezone"], "Asia/Shanghai")
+        codex_days = [d for d in result["daily"] if d["agentId"] == "agent"]
+        self.assertEqual([d["date"] for d in codex_days], ["2026-10-18", "2026-10-19"])
+        for key, value in result["totals"].items():
+            self.assertEqual(sum(d[key] for d in result["daily"]), value)
+        filtered = self.summary(agents, begin="2026-10-19T00:00:00+08:00", end="2026-10-19T23:59:59.999+08:00")
+        self.assertEqual({d["date"] for d in filtered["daily"]}, {"2026-10-19"})
+        self.assertEqual(sum(d["total"] for d in filtered["daily"]), 225)
+        self.assertEqual(self.summary(agents, begin="2026-10-20T00:00:00Z")["daily"], [])
+        self.assertEqual(self.summary([agent(kind="grok_routine")])["daily"], [])
+        self.assertEqual(self.mirror.summary(CHILD, agents)["daily"], [])
+
     def test_missing_source_is_unavailable_not_connected_zero_and_money_is_unknown(self):
         self.mirror.refresh(CID, [agent()])
         row = self.summary()["rows"][0]
