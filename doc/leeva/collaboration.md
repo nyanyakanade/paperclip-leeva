@@ -60,3 +60,29 @@ python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
 ```
 
 测试使用假智能体和临时文件，HTTP 用临时 loopback 端口；覆盖改线改变解析目标、旧版本不变、并发版本冲突、暂停及审批阻断、外部映射变更、非法图和跨网站写入保护。UI 和 Grok 实际接入另行验收。
+
+## 原应用用量接入（2026-10-19）
+
+审计 → 费用顶部的“原应用用量”从同一本机服务读取 `GET /api/companies/:companyId/external-usage?from=ISO&to=ISO`。公司 ID 先向 Paperclip 校验，再按智能体 `metadata.externalKind/externalId` 选择来源；不是读取整个账号后塞进一个项目。该接口只读，沿用 loopback、Host 和 Origin 限制，不适用于远程、多租户部署。
+
+- Codex：读取当前映射会话和明确 `subagent` 后代的本机 `token_usage_record`，按 response ID 去重，跳过继承记录、普通分叉和系统审批；直接映射的子会话单独归属。只保存用量、时间、模型与来源标识，不保存正文。
+- Argon：复用相邻 `../gemini-api-bridge/gemini_api.py` 的受限只读接口，读取映射会话主轨迹的步骤用量和重试记录。只收终态记录；response ID 优先、message ID 兜底去重，不把同一次请求的重试元数据再加一次。新步骤、最近 50 步和未结束步骤增量回读。子轨迹不在范围内。
+- 两种输入口径归一：Codex input 包含缓存，Argon input 不含缓存；界面分别列非缓存输入、缓存读取、缓存写入、输出。推理输出已经包含在输出内，不额外相加。相同身份出现矛盾计数时回滚该来源本轮同步，显示来源异常。
+- SQLite 缓存存于 `~/.paperclip/leeva/usage/<company-id>.sqlite3`，目录 0700、数据文件 0600，包含记录去重键、增量位置和最近成功时间，不进入 Git。刷新失败保留上次成功记录；无来源、缺日志和重复映射明确显示，不以零代表未取得。
+- 打开费用页时至多每分钟同步一次；首次同步在后台进行，界面短轮询缓存直到完成。关闭页面后不持续轮询。该同步只读已有记录，不调用模型、不派任务、不恢复 Grok、不改变原应用执行方式。
+- 日期筛选作用于记录时间，所选时段无记录与来源未接入分别显示。金额为 null：订阅账单、积分、逐任务派工/验收/执行成本尚未接入。原生 Paperclip 费用账本不包含这些外部记录，不能把下方 `$0` 当作外部费用。
+
+部署时重新构建并通过 `deploy-ui.mjs` 部署 UI，重启既有 `com.leeva.paperclip-rules` 服务以加载新的只读端点。无数据库迁移；不需要重启 Codex、Gemini、Grok 或 Paperclip 主服务。
+
+验证：
+
+```sh
+python3 -m unittest discover -s scripts/leeva -p test_external_usage.py -v
+python3 -m unittest discover -s scripts/leeva -p test_collaboration_rules.py -v
+cd ui
+./node_modules/.bin/vitest run src/components/ExternalUsagePanel.test.tsx src/pages/Costs.test.tsx
+./node_modules/.bin/tsc -b
+./node_modules/.bin/vite build
+```
+
+历史交叉核对：将同一时间窗口的 Argon 主轨迹与此前独立审计逐字段比较，确认请求数及每种 Token 计数一致。实际私有用量保留在本机，不提交到仓库。此项不代表全账号账单或任务性价比已核算完成。

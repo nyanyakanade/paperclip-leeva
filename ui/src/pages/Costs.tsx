@@ -17,6 +17,7 @@ import { BillerSpendCard } from "../components/BillerSpendCard";
 import { BudgetIncidentCard } from "../components/BudgetIncidentCard";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
 import { EmptyState } from "../components/EmptyState";
+import { ExternalUsagePanel } from "../components/ExternalUsagePanel";
 import { FinanceBillerCard } from "../components/FinanceBillerCard";
 import { FinanceKindCard } from "../components/FinanceKindCard";
 import { FinanceTimelineCard } from "../components/FinanceTimelineCard";
@@ -605,6 +606,8 @@ export function Costs({
               />
             </div>
           ) : null}
+
+          {selectedCompanyId && <ExternalUsagePanel companyId={selectedCompanyId} from={from} to={to} enabled={customReady} />}
 
           <div className="grid gap-3 lg:grid-cols-4">
             <MetricTile

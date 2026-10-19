@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import urllib.error
 import urllib.request
 
@@ -170,6 +170,29 @@ class HttpTest(unittest.TestCase):
                 self.request("PUT", headers, payload())
             self.assertEqual(caught.exception.code, 403)
         self.assertEqual(self.store.get(CID)["version"], 0)
+
+    def test_usage_endpoint_keeps_company_and_date_scope(self):
+        usage = Mock()
+        usage.summary.return_value = {"rows": [], "costCents": None}
+        self.server.RequestHandlerClass = rules.make_handler(self.store, "http://127.0.0.1:3100", self.port, usage)
+        url = f"http://127.0.0.1:{self.port}/api/companies/{CID}/external-usage?from=2026-10-19T00%3A00%3A00Z"
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(url) as response:
+            self.assertIsNone(json.load(response)["costCents"])
+        usage.summary.assert_called_once_with(CID, agents(), "2026-10-19T00:00:00Z", None)
+        self.assertEqual(self.store.get(CID)["version"], 0)
+
+    def test_usage_rejects_writes_and_foreign_origins(self):
+        usage = Mock()
+        self.server.RequestHandlerClass = rules.make_handler(self.store, "http://127.0.0.1:3100", self.port, usage)
+        url = f"http://127.0.0.1:{self.port}/api/companies/{CID}/external-usage"
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for method, headers, status in [("GET", {"Origin": "https://evil.example"}, 403),
+                                        ("PUT", {"X-Leeva-Client": "paperclip-ui"}, 405)]:
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                opener.open(urllib.request.Request(url, method=method, headers=headers))
+            self.assertEqual(caught.exception.code, status)
+        usage.summary.assert_not_called()
 
 
 if __name__ == "__main__":

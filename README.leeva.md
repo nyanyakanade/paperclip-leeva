@@ -50,6 +50,8 @@ pnpm --filter @paperclipai/ui exec vite preview --host 127.0.0.1 --port 3101
 
 发布前按上游要求补跑 `pnpm -r typecheck`、`pnpm test:run`、`pnpm build`；记录实际完成范围，不能用界面构建代替全仓测试通过。
 
+审计页现支持读取原应用用量：按当前映射接入 Codex 会话与 Argon 主轨迹，分列缓存、输入和输出，金额未知时明确标注。部署、覆盖范围与校验方法见 [协作与用量接入](doc/leeva/collaboration.md)。
+
 ## 后续维护
 
 在 `leeva` 上维护，功能较多时另开工作分支，合并回 `leeva`。`master` 保留上游分支用途。更新上游先备份运行实例，再在升级分支合并并验证；不要让 npm 自动更新覆盖自定义界面后再临时修改压缩 JS。

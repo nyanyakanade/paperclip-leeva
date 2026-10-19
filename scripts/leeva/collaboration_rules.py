@@ -243,7 +243,7 @@ def resolve(config, agents, source, kind, outcome, target=None):
             "executed": False, "instruction": "Use the existing authorized Grok workflow. This decision does not send, resume or approve work."}
 
 
-def make_handler(store, paperclip, port):
+def make_handler(store, paperclip, port, usage=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
@@ -282,6 +282,17 @@ def make_handler(store, paperclip, port):
         def handle_request(self, mutation=False):
             try:
                 self.guard(mutation)
+                from urllib.parse import urlsplit, parse_qs
+                parsed = urlsplit(self.path)
+                usage_match = re.fullmatch(r"/api/companies/([0-9a-fA-F-]{36})/external-usage", parsed.path)
+                if usage_match and usage is not None:
+                    if mutation:
+                        raise RuleError("Usage is read-only", 405)
+                    cid = company_id(usage_match[1])
+                    agents = fetch_agents(paperclip, cid)
+                    query = parse_qs(parsed.query)
+                    self.respond(200, usage.summary(cid, agents, query.get("from", [None])[0], query.get("to", [None])[0]))
+                    return
                 match = ROUTE.fullmatch(self.path)
                 if not match:
                     raise RuleError("Not found", 404)
@@ -334,7 +345,9 @@ def main(argv=None):
     store = Store(args.store)
     try:
         if args.command == "serve":
-            server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, args.paperclip, args.port))
+            from external_usage import UsageMirror
+            usage = UsageMirror(args.store.parent / "usage")
+            server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(store, args.paperclip, args.port, usage))
             print("Leeva collaboration rules listening on loopback port " + str(args.port), flush=True)
             server.serve_forever()
         elif args.command == "read":
