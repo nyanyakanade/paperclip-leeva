@@ -232,6 +232,26 @@ class UsageTest(unittest.TestCase):
         self.assertEqual(result["totals"]["total"], 115)
         self.assertEqual(result["rows"][0]["status"], "unavailable")
 
+    def test_private_history_survives_external_metadata_replacement_and_is_company_scoped(self):
+        self.claude_log([claude_record("new")])
+        self.claude_log([claude_record("old", CHILD)], root=CHILD)
+        current = agent(kind="claude_session")
+        self.mirror.refresh(CID, [current])
+        path = self.base / "usage" / (CID + ".sources.json")
+        config = {"version": 1, "companyId": CID, "agents": {current["id"]: {
+            "externalKind": "claude_session", "usageHistorySessionIds": [CHILD]}}}
+        path.write_text(json.dumps(config))
+        self.mirror.refresh(CID, [current])
+        self.assertNotIn("usageHistorySessionIds", current["metadata"])
+        self.assertEqual(current["metadata"]["externalId"], ROOT)
+        self.assertEqual(self.summary([current])["rows"][0]["sessionCount"], 2)
+        self.assertEqual(self.summary([current])["totals"]["requests"], 2)
+        self.mirror.refresh(ROOT, [current])
+        self.assertEqual(self.mirror.summary(ROOT, [current])["totals"]["requests"], 1)
+        config["companyId"] = ROOT
+        path.write_text(json.dumps(config))
+        self.assertEqual(self.summary([current])["rows"][0]["status"], "unavailable")
+
     def test_cache_and_reasoning_are_not_double_counted(self):
         c = codex_event(record(), meta(), "test")
         a = next(argon_events(step(), ROOT))

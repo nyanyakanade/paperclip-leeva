@@ -125,6 +125,30 @@ class UsageMirror:
         self.running = set()
         self.last_attempt = {}
 
+    def accounting_agents(self, cid, agents):
+        # External state bridges replace metadata from snapshots. Keep explicitly
+        # configured accounting history outside that independently written state.
+        path = self.root / (str(uuid.UUID(cid)) + ".sources.json")
+        if not path.exists():
+            return agents
+        try:
+            config = json.loads(path.read_text())
+            if config.get("version") != 1 or config.get("companyId") != cid or not isinstance(config.get("agents"), dict):
+                raise ValueError("Invalid usage source configuration")
+            entries = config["agents"]
+        except (OSError, ValueError, TypeError, AttributeError):
+            entries = None
+        result = []
+        for agent in agents:
+            meta = agent.get("metadata") or {}
+            if meta.get("externalKind") == "claude_session" and (entries is None or agent["id"] in entries):
+                entry = entries.get(agent["id"]) if entries is not None else None
+                history = entry.get("usageHistorySessionIds") if isinstance(entry, dict) and entry.get("externalKind") == "claude_session" else None
+                meta = {**meta, "usageHistorySessionIds": history}
+                agent = {**agent, "metadata": meta}
+            result.append(agent)
+        return result
+
     @staticmethod
     def grok_usage():
         # Fixed local reader. Credentials stay in Grok Bot, which must already run.
@@ -321,6 +345,7 @@ class UsageMirror:
         self.checkpoint(db, key, stamp)
 
     def refresh(self, cid, agents):
+        agents = self.accounting_agents(cid, agents)
         db = self.database(cid)
         inventory = None
         roots = {(a.get("metadata") or {}).get("externalId") for a in agents
@@ -396,6 +421,7 @@ class UsageMirror:
         threading.Thread(target=work, daemon=True).start()
 
     def summary(self, cid, agents, begin=None, end=None):
+        agents = self.accounting_agents(cid, agents)
         lower = timestamp(begin) if begin else ""
         upper = timestamp(end) if end else "9999"
         if lower > upper:
